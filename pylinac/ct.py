@@ -10,15 +10,15 @@ Features:
 * **Any scan protocol** - Scan your CatPhan with any protocol; even scan it in a regular CT scanner.
   Any field size or field extent is allowed.
 """
+import io
+import os
+import webbrowser
+import zipfile
 from abc import abstractmethod
 from collections import OrderedDict
 from datetime import datetime
 from functools import lru_cache
-import io
 from os import path as osp
-import os
-import webbrowser
-import zipfile
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -26,15 +26,13 @@ import numpy as np
 from scipy import ndimage
 from skimage import filters, measure, segmentation
 
-from .core import image
-from .core.io import TemporaryZipDirectory
+from .core import image, pdf
 from .core.decorators import value_accept
-from .core.geometry import Point, Line
-from .core.io import get_url, retrieve_demo_file
-from .core import pdf
+from .core.geometry import Line, Point
+from .core.io import TemporaryZipDirectory, get_url, retrieve_demo_file
 from .core.mtf import MTF
 from .core.profile import CollapsedCircleProfile, SingleProfile
-from .core.roi import DiskROI, RectangleROI, LowContrastDiskROI
+from .core.roi import DiskROI, LowContrastDiskROI, RectangleROI
 from .core.utilities import simple_round
 from .settings import get_dicom_cmap
 
