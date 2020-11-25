@@ -1074,13 +1074,17 @@ class PTWEPIDQCHorizontal(PTWEPIDQCDiagonal):
     common_name = 'PTW EPID QC kv Horizontal'
 
     high_contrast_roi_settings = {
-        'roi 1': {'distance from center': 0.52, 'angle': -2.8, 'roi radius': 0.018, 'lp/mm': 0.5},
-        'roi 2': {'distance from center': 0.35, 'angle': -2.5, 'roi radius': 0.009, 'lp/mm': 0.59},
-        'roi 3': {'distance from center': 0.52, 'angle': 2.8, 'roi radius': 0.018, 'lp/mm': 0.67},
-        'roi 4': {'distance from center': 0.35, 'angle': 2, 'roi radius': 0.009, 'lp/mm': 1.0},
-        'roi 5': {'distance from center': 0.17, 'angle': 0, 'roi radius': 0.010, 'lp/mm': 2.0},
-        'roi 6': {'distance from center': 0.35, 'angle': 180, 'roi radius': 0.008, 'lp/mm': 2.5},
-        'roi 7': {'distance from center': 0.17, 'angle': 180, 'roi radius': 0.007, 'lp/mm': 3.3},
+        'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
+        'roi 2': {'distance from center': 0.75, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
+        'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
+        'roi 5': {'distance from center': 0.52, 'angle': -2.8, 'roi radius': 0.018, 'lp/mm': 0.5},
+        'roi 6': {'distance from center': 0.35, 'angle': -2.5, 'roi radius': 0.009, 'lp/mm': 0.59},
+        'roi 7': {'distance from center': 0.52, 'angle': 2.8, 'roi radius': 0.018, 'lp/mm': 0.67},
+        'roi 8': {'distance from center': 0.35, 'angle': 2, 'roi radius': 0.009, 'lp/mm': 1.0},
+        'roi 9': {'distance from center': 0.17, 'angle': 0, 'roi radius': 0.010, 'lp/mm': 2.0},
+        'roi 10': {'distance from center': 0.35, 'angle': 180, 'roi radius': 0.008, 'lp/mm': 2.5},
+        'roi 11': {'distance from center': 0.17, 'angle': 180, 'roi radius': 0.007, 'lp/mm': 3.3},
     }
 
 
@@ -1091,11 +1095,15 @@ class PTWEPIDQCVertical(PTWEPIDQCDiagonal):
     common_name = 'PTW EPID QC kV Vertical'
 
     high_contrast_roi_settings = {
-        'roi 1': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
-        'roi 2': {'distance from center': 0.72, 'angle': 269, 'roi radius': 0.009, 'lp/mm': 0.59},
-        'roi 3': {'distance from center': 0.90, 'angle': 271.5, 'roi radius': 0.018, 'lp/mm': 0.67},
-        'roi 4': {'distance from center': 0.72, 'angle': 271, 'roi radius': 0.009, 'lp/mm': 1.0},
-        'roi 5': {'distance from center': 0.53, 'angle': 270, 'roi radius': 0.010, 'lp/mm': 2.0},
-        'roi 6': {'distance from center': 0.34, 'angle': 270, 'roi radius': 0.008, 'lp/mm': 2.5},
-        'roi 7': {'distance from center': 0.17, 'angle': 270, 'roi radius': 0.007, 'lp/mm': 3.3},
+        'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
+        'roi 2': {'distance from center': 0.75, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
+        'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
+        'roi 5': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
+        'roi 6': {'distance from center': 0.72, 'angle': 269, 'roi radius': 0.009, 'lp/mm': 0.59},
+        'roi 7': {'distance from center': 0.90, 'angle': 271.5, 'roi radius': 0.018, 'lp/mm': 0.67},
+        'roi 8': {'distance from center': 0.72, 'angle': 271, 'roi radius': 0.009, 'lp/mm': 1.0},
+        'roi 9': {'distance from center': 0.53, 'angle': 270, 'roi radius': 0.010, 'lp/mm': 2.0},
+        'roi 10': {'distance from center': 0.34, 'angle': 270, 'roi radius': 0.008, 'lp/mm': 2.5},
+        'roi 11': {'distance from center': 0.17, 'angle': 270, 'roi radius': 0.007, 'lp/mm': 3.3},
     }
