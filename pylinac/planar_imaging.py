@@ -948,3 +948,154 @@ class DoselabMC2MV(DoselabMC2kV):
         leeds = DoselabMC2MV.from_demo_image()
         leeds.analyze()
         leeds.plot_analyzed_image()
+
+
+class PTWEPIDQCDiagonal(ImagePhantomBase):
+
+    _demo_filename = ''
+    common_name = 'PTW EPID QC MV'
+    _phantom_ski_region = None
+
+    # phantom is square so bounding rect is 2xradius
+    phantom_outline_object = {'Rectangle': {'width ratio': 2, 'height ratio': 2}}
+
+    high_contrast_roi_settings = {
+        'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
+        'roi 2': {'distance from center': 0.75, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
+        'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
+    }
+
+    @classmethod
+    def run_demo(cls) -> None:
+        """Run the Standard Imaging QC-3 phantom analysis demonstration."""
+        epidqc = cls.from_demo_image()
+        epidqc.analyze()
+        epidqc.plot_analyzed_image()
+
+    @property
+    def low_contrast_background_roi_settings(self):
+
+        angles = [60, 80, 100, 120]
+        distances_in_mm = [9.2, 17.8, 32.3, 49.8, 73.5]
+        diameters_in_mm = [2.0, 4.0, 7.0, 10.0, 15.0]
+        missing_regions = [
+            (60, 49.8),
+            (60, 73.5),
+        ]
+        return self._disk_regions(angles, distances_in_mm, diameters_in_mm, missing_regions)
+
+    @property
+    def low_contrast_roi_settings(self):
+
+        angles = [130, 110, 90, 70, 50]
+        distances_in_mm =  [6.3, 12.1, 23.5, 41.2, 58.4, 88.5]
+        diameters_in_mm = [1.1, 2.0, 4.0, 7.0, 10.0, 15.0]
+        missing_regions = [
+            (50, 88.5),
+            (50, 58.4),
+            (70, 88.5),
+        ]
+        return self._disk_regions(angles, distances_in_mm, diameters_in_mm, missing_regions)
+
+    def _disk_regions(self, angles, distances_in_mm, diameters_in_mm, missing):
+
+        phant_rad_in_px = self.phantom_radius
+        phant_rad_in_mm = phant_rad_in_px / self.image.dpmm
+
+        distances_in_px = [d*self.image.dpmm for d in distances_in_mm]
+
+        hole_radii_per_phant_radius = [d_mm/phant_rad_in_mm/2 for d_mm in diameters_in_mm]
+
+        roi_idx = 1
+        rois = {}
+        for rad_idx, (rad, dist) in enumerate(zip(hole_radii_per_phant_radius, distances_in_mm)):
+            dist_in_px = dist*self.image.dpmm
+            for angle_idx, angle in enumerate(angles):
+
+                if (angle, dist) not in missing:
+                    dist_per_phant_rad = dist_in_px / phant_rad_in_px
+                    rois[f'roi {roi_idx}'] = {'distance from center': dist_per_phant_rad, 'angle': angle, 'roi radius': rad*.8}
+                    roi_idx += 1
+
+        return rois
+
+    def _phantom_angle_calc(self) -> float:
+        return 0.0
+
+    def _phantom_ski_region_calc(self):
+        """The skimage region of the phantom outline."""
+        if self._phantom_ski_region is not None:
+            return self._phantom_ski_region
+        else:
+
+            phantom_bbox_size_mm2 = 250**2  # phantom is 250mm*250mm
+            phantom_size_pix = phantom_bbox_size_mm2 * (self.image.dpmm ** 2)
+            img_center = (self.image.center.y, self.image.center.x)
+
+            regions = self._get_canny_regions(sigma=5)
+            regions = sorted(regions, key=lambda r: r.bbox_area, reverse=True)
+
+            roi = None
+            for region in regions:
+                areas_match = np.isclose(region.bbox_area, phantom_size_pix, rtol=0.07)
+                centered = np.allclose(region.centroid, img_center, rtol=0.1)
+                if areas_match and centered:
+                    roi = region
+                    break
+
+            if not roi:
+                raise ValueError("Unable to find the PTW EPID QC phantom in the image.")
+
+            self._phantom_ski_region = roi
+
+            return roi
+
+    def _phantom_center_calc(self) -> Point:
+        """The center point of the phantom.
+
+        Returns
+        -------
+        center : Point
+        """
+        return bbox_center(self._phantom_ski_region_calc())
+
+    def _phantom_radius_calc(self) -> float:
+        """The phantom is square so take 1/2 of sqrt of bbox area"""
+        return self._phantom_ski_region_calc().bbox_area**0.5/2
+
+    def _check_inversion(self) -> None:
+        self.image.check_inversion_by_histogram()
+
+
+class PTWEPIDQCHorizontal(ImagePhantomBase):
+
+    _demo_filename = ''
+    common_name = 'PTW EPID QC kv Horizontal'
+
+    high_contrast_roi_settings = {
+        'roi 1': {'distance from center': 0.52, 'angle': -2.8, 'roi radius': 0.018, 'lp/mm': 0.5},
+        'roi 2': {'distance from center': 0.35, 'angle': -2.5, 'roi radius': 0.009, 'lp/mm': 0.59},
+        'roi 3': {'distance from center': 0.52, 'angle': 2.8, 'roi radius': 0.018, 'lp/mm': 0.67},
+        'roi 4': {'distance from center': 0.35, 'angle': 2, 'roi radius': 0.009, 'lp/mm': 1.0},
+        'roi 5': {'distance from center': 0.17, 'angle': 0, 'roi radius': 0.010, 'lp/mm': 2.0},
+        'roi 6': {'distance from center': 0.35, 'angle': 180, 'roi radius': 0.008, 'lp/mm': 2.5},
+        'roi 7': {'distance from center': 0.17, 'angle': 180, 'roi radius': 0.007, 'lp/mm': 3.3},
+    }
+
+
+
+class PTWEPIDQCVertical(ImagePhantomBase):
+
+    _demo_filename = ''
+    common_name = 'PTW EPID QC kV Vertical'
+
+    vert_high_contrast_roi_settings = {
+        'roi 1': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
+        'roi 2': {'distance from center': 0.72, 'angle': 269, 'roi radius': 0.009, 'lp/mm': 0.59},
+        'roi 3': {'distance from center': 0.90, 'angle': 271.5, 'roi radius': 0.018, 'lp/mm': 0.67},
+        'roi 4': {'distance from center': 0.72, 'angle': 271, 'roi radius': 0.009, 'lp/mm': 1.0},
+        'roi 5': {'distance from center': 0.53, 'angle': 270, 'roi radius': 0.010, 'lp/mm': 2.0},
+        'roi 6': {'distance from center': 0.34, 'angle': 270, 'roi radius': 0.008, 'lp/mm': 2.5},
+        'roi 7': {'distance from center': 0.17, 'angle': 270, 'roi radius': 0.007, 'lp/mm': 3.3},
+    }
