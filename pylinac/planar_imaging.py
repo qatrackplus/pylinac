@@ -1068,7 +1068,7 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
         self.image.check_inversion_by_histogram()
 
 
-class PTWEPIDQCHorizontal(ImagePhantomBase):
+class PTWEPIDQCHorizontal(PTWEPIDQCDiagonal):
 
     _demo_filename = ''
     common_name = 'PTW EPID QC kv Horizontal'
@@ -1085,12 +1085,12 @@ class PTWEPIDQCHorizontal(ImagePhantomBase):
 
 
 
-class PTWEPIDQCVertical(ImagePhantomBase):
+class PTWEPIDQCVertical(PTWEPIDQCDiagonal):
 
     _demo_filename = ''
     common_name = 'PTW EPID QC kV Vertical'
 
-    vert_high_contrast_roi_settings = {
+    high_contrast_roi_settings = {
         'roi 1': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
         'roi 2': {'distance from center': 0.72, 'angle': 269, 'roi radius': 0.009, 'lp/mm': 0.59},
         'roi 3': {'distance from center': 0.90, 'angle': 271.5, 'roi radius': 0.018, 'lp/mm': 0.67},
