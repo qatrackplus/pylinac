@@ -1107,7 +1107,18 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
         return self._phantom_ski_region_calc().bbox_area**0.5/2
 
     def _check_inversion(self) -> None:
-        self.image.check_inversion_by_histogram()
+        """
+        Check inversion by looking at a point 5mm above the center and 5mm below the center.
+        5mm above the center is a background region, and 5mm below is in the Low Contrast region, so
+        if the background value is higher than the low contrast value, the image is inverted.
+        """
+        center = self.phantom_center
+        x = int(center.x)
+        background_y= int(center.y - 5*self.image.dpmm)
+        lc_y = int(center.y + 5*self.image.dpmm)
+        is_inverted = self.image.array[background_y, x] > self.image.array[lc_y, x]
+        if is_inverted:
+            self.image.invert()
 
 
 class PTWEPIDQCHorizontal(PTWEPIDQCDiagonal):
