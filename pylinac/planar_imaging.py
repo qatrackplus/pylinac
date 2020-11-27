@@ -961,7 +961,7 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
 
     high_contrast_roi_settings = {
         'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
-        'roi 2': {'distance from center': 0.75, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi 2': {'distance from center': 0.70, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
         'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
         'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
     }
@@ -976,29 +976,71 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
     @property
     def low_contrast_background_roi_settings(self):
 
-        angles = [60, 80, 100, 120]
-        distances_in_mm = [9.2, 17.8, 32.3, 49.8, 73.5]
+        angles = [80, 100, 120]
+        distances_in_mm = [17.8, 32.3, 49.8, 73.5]
         diameters_in_mm = [2.0, 4.0, 7.0, 10.0, 15.0]
         missing_regions = [
             (60, 49.8),
             (60, 73.5),
         ]
-        return self._disk_regions(angles, distances_in_mm, diameters_in_mm, missing_regions)
+        return self._bg_disk_regions(angles, distances_in_mm, diameters_in_mm, missing_regions)
 
     @property
     def low_contrast_roi_settings(self):
 
         angles = [130, 110, 90, 70, 50]
-        distances_in_mm =  [6.3, 12.1, 23.5, 41.2, 58.4, 88.5]
+        distances_in_mm = [6.3, 12.1, 23.5, 41.2, 58.4, 88.5]
         diameters_in_mm = [1.1, 2.0, 4.0, 7.0, 10.0, 15.0]
-        missing_regions = [
-            (50, 88.5),
-            (50, 58.4),
-            (70, 88.5),
-        ]
-        return self._disk_regions(angles, distances_in_mm, diameters_in_mm, missing_regions)
 
-    def _disk_regions(self, angles, distances_in_mm, diameters_in_mm, missing):
+        rois = [
+            (0.4, angles[0], distances_in_mm[0], diameters_in_mm[0]),
+            (0.2, angles[1], distances_in_mm[0], diameters_in_mm[0]),
+            (0.0, angles[2], distances_in_mm[0], diameters_in_mm[0]),
+            (0.2, angles[3], distances_in_mm[0], diameters_in_mm[0]),
+            (0.2, angles[4], distances_in_mm[0], diameters_in_mm[0]),
+
+            (0.2, angles[0], distances_in_mm[1], diameters_in_mm[0]),
+            (0.1, angles[1], distances_in_mm[1], diameters_in_mm[0]),
+            (0.3, angles[2], distances_in_mm[1], diameters_in_mm[0]),
+            (0.6, angles[3], distances_in_mm[1], diameters_in_mm[0]),
+            (1.2, angles[4], distances_in_mm[1], diameters_in_mm[0]),
+
+            (0.1, angles[0], distances_in_mm[2], diameters_in_mm[2]),
+            (0.5, angles[1], distances_in_mm[2], diameters_in_mm[2]),
+            (1.0, angles[2], distances_in_mm[2], diameters_in_mm[2]),
+            (1.6, angles[3], distances_in_mm[2], diameters_in_mm[2]),
+            (2.6, angles[4], distances_in_mm[2], diameters_in_mm[2]),
+
+            (0.3, angles[0], distances_in_mm[3], diameters_in_mm[3]),
+            (0.7, angles[1], distances_in_mm[3], diameters_in_mm[3]),
+            (1.3, angles[2], distances_in_mm[3], diameters_in_mm[3]),
+            (2.3, angles[3], distances_in_mm[3], diameters_in_mm[3]),
+            (3.6, angles[4], distances_in_mm[3], diameters_in_mm[3]),
+
+            (0.2, angles[0], distances_in_mm[4], diameters_in_mm[4]),
+            (0.7, angles[1], distances_in_mm[4], diameters_in_mm[4]),
+            (1.6, angles[2], distances_in_mm[4], diameters_in_mm[4]),
+            (2.6, angles[3], distances_in_mm[4], diameters_in_mm[4]),
+
+            (0.1, angles[0], distances_in_mm[5], diameters_in_mm[5]),
+            (0.8, angles[1], distances_in_mm[5], diameters_in_mm[5]),
+            (1.8, angles[2], distances_in_mm[5], diameters_in_mm[5]),
+        ]
+
+        rois = sorted(rois, reverse=True, key=lambda r: r[0])
+        phant_rad_in_px = self.phantom_radius
+        phant_rad_in_mm = phant_rad_in_px / self.image.dpmm
+
+        rois_d = {}
+        for roi_idx, (val, angle, dist, diam) in enumerate(rois):
+            dist_px = dist*self.image.dpmm
+            dist_per_rad = dist_px / phant_rad_in_px
+            rad_per_rad = diam/phant_rad_in_mm/2
+            rois_d[f'roi {roi_idx}'] = {'distance from center': dist_per_rad, 'angle': angle, 'roi radius': rad_per_rad*.8, 'val': val}
+
+        return rois_d
+
+    def _bg_disk_regions(self, angles, distances_in_mm, diameters_in_mm, missing):
 
         phant_rad_in_px = self.phantom_radius
         phant_rad_in_mm = phant_rad_in_px / self.image.dpmm
@@ -1009,9 +1051,9 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
 
         roi_idx = 1
         rois = {}
-        for rad_idx, (rad, dist) in enumerate(zip(hole_radii_per_phant_radius, distances_in_mm)):
-            dist_in_px = dist*self.image.dpmm
-            for angle_idx, angle in enumerate(angles):
+        for angle_idx, angle in enumerate(angles):
+            for rad_idx, (rad, dist) in enumerate(zip(hole_radii_per_phant_radius, distances_in_mm)):
+                dist_in_px = dist*self.image.dpmm
 
                 if (angle, dist) not in missing:
                     dist_per_phant_rad = dist_in_px / phant_rad_in_px
@@ -1075,7 +1117,7 @@ class PTWEPIDQCHorizontal(PTWEPIDQCDiagonal):
 
     high_contrast_roi_settings = {
         'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
-        'roi 2': {'distance from center': 0.75, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi 2': {'distance from center': 0.70, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
         'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
         'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
         'roi 5': {'distance from center': 0.52, 'angle': -2.8, 'roi radius': 0.018, 'lp/mm': 0.5},
@@ -1096,7 +1138,7 @@ class PTWEPIDQCVertical(PTWEPIDQCDiagonal):
 
     high_contrast_roi_settings = {
         'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
-        'roi 2': {'distance from center': 0.75, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi 2': {'distance from center': 0.70, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
         'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
         'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
         'roi 5': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
