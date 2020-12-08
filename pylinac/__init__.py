@@ -18,9 +18,7 @@ from pylinac.planar_imaging import (
     DoselabMC2kV,
     LasVegas,
     LeedsTOR,
-    PTWEPIDQCDiagonal,
-    PTWEPIDQCHorizontal,
-    PTWEPIDQCVertical,
+    PTWEPIDQC,
     StandardImagingQC3,
 )
 from pylinac.log_analyzer import load_log, Dynalog, TrajectoryLog, MachineLogs

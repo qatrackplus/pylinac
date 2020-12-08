@@ -165,10 +165,11 @@ class ImagePhantomBase:
         if self.low_contrast_roi_settings:
             self.low_contrast_rois = self._sample_low_contrast_rois()
 
-    def _sample_low_contrast_rois(self):
+    def _sample_low_contrast_rois(self, roi_settings=None):
         """Sample the low-contrast sample regions for calculating contrast values."""
+        roi_settings = roi_settings if roi_settings is not None else self.low_contrast_roi_settings
         lc_rois = []
-        for stng in self.low_contrast_roi_settings.values():
+        for stng in roi_settings.values():
             roi = LowContrastDiskROI(self.image,
                                      self.phantom_angle + stng['angle'],
                                      self.phantom_radius * stng['roi radius'],
@@ -193,10 +194,17 @@ class ImagePhantomBase:
         avg_bg = np.mean([roi.pixel_value for roi in bg_rois])
         return bg_rois, avg_bg
 
-    def _sample_high_contrast_rois(self):
-        """Sample the high-contrast line pair regions."""
+    def _sample_high_contrast_rois(self, roi_settings=None):
+        """Sample the high-contrast line pair regions.
+
+        Parameters
+        ----------
+        roi_settings: float
+
+        """
+        roi_settings = roi_settings if roi_settings is not None else self.high_contrast_roi_settings
         hc_rois = []
-        for stng in self.high_contrast_roi_settings.values():
+        for stng in roi_settings.values():
             roi = HighContrastDiskROI(self.image,
                                       self.phantom_angle + stng['angle'],
                                       self.phantom_radius * stng['roi radius'],
@@ -950,21 +958,47 @@ class DoselabMC2MV(DoselabMC2kV):
         leeds.plot_analyzed_image()
 
 
-class PTWEPIDQCDiagonal(ImagePhantomBase):
+class PTWEPIDQC(ImagePhantomBase):
 
     _demo_filename = ''
-    common_name = 'PTW EPID QC MV'
+    common_name = 'PTW EPID QC'
     _phantom_ski_region = None
 
     # phantom is square so bounding rect is 2xradius
     phantom_outline_object = {'Rectangle': {'width ratio': 2, 'height ratio': 2}}
 
-    high_contrast_roi_settings = {
-        'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
-        'roi 2': {'distance from center': 0.70, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
-        'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
-        'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
+    _high_contrast_roi_settings_diag = {
+        'roi d1': {'distance from center': 0.36, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
+        'roi d2': {'distance from center': 0.73, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
+        'roi d3': {'distance from center': 0.82, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
+        'roi d4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.0775, 'lp/mm': 0.330},
     }
+
+    _high_contrast_roi_settings_horiz = {
+        'roi h1': {'distance from center': 0.52, 'angle': -2.8, 'roi radius': 0.018, 'lp/mm': 0.5},
+        'roi h2': {'distance from center': 0.35, 'angle': -2.5, 'roi radius': 0.009, 'lp/mm': 0.59},
+        'roi h3': {'distance from center': 0.52, 'angle': 2.8, 'roi radius': 0.018, 'lp/mm': 0.67},
+        'roi h4': {'distance from center': 0.35, 'angle': 2, 'roi radius': 0.009, 'lp/mm': 1.0},
+        'roi h5': {'distance from center': 0.17, 'angle': 0, 'roi radius': 0.010, 'lp/mm': 2.0},
+        'roi h6': {'distance from center': 0.35, 'angle': 180, 'roi radius': 0.008, 'lp/mm': 2.5},
+        'roi h7': {'distance from center': 0.17, 'angle': 180, 'roi radius': 0.007, 'lp/mm': 3.3},
+    }
+
+    _high_contrast_roi_settings_vert = {
+        'roi v1': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
+        'roi v2': {'distance from center': 0.72, 'angle': 269, 'roi radius': 0.009, 'lp/mm': 0.59},
+        'roi v3': {'distance from center': 0.90, 'angle': 271.5, 'roi radius': 0.018, 'lp/mm': 0.67},
+        'roi v4': {'distance from center': 0.72, 'angle': 271, 'roi radius': 0.009, 'lp/mm': 1.0},
+        'roi v5': {'distance from center': 0.53, 'angle': 270, 'roi radius': 0.010, 'lp/mm': 2.0},
+        'roi v6': {'distance from center': 0.34, 'angle': 270, 'roi radius': 0.008, 'lp/mm': 2.5},
+        'roi v7': {'distance from center': 0.17, 'angle': 270, 'roi radius': 0.007, 'lp/mm': 3.3},
+    }
+
+    _high_contrast_roi_settings = [
+        ('Vertical', _high_contrast_roi_settings_vert),
+        ('Horizontal', _high_contrast_roi_settings_horiz),
+        ('Diagonal', _high_contrast_roi_settings_diag),
+    ]
 
     @classmethod
     def run_demo(cls) -> None:
@@ -993,50 +1027,63 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
         diameters_in_mm = [1.1, 2.0, 4.0, 7.0, 10.0, 15.0]
 
         rois = [
-            (0.4, angles[0], distances_in_mm[0], diameters_in_mm[0]),
-            (0.2, angles[1], distances_in_mm[0], diameters_in_mm[0]),
-            (0.0, angles[2], distances_in_mm[0], diameters_in_mm[0]),
-            (0.2, angles[3], distances_in_mm[0], diameters_in_mm[0]),
-            (0.2, angles[4], distances_in_mm[0], diameters_in_mm[0]),
-
-            (0.2, angles[0], distances_in_mm[1], diameters_in_mm[0]),
-            (0.1, angles[1], distances_in_mm[1], diameters_in_mm[0]),
-            (0.3, angles[2], distances_in_mm[1], diameters_in_mm[0]),
-            (0.6, angles[3], distances_in_mm[1], diameters_in_mm[0]),
-            (1.2, angles[4], distances_in_mm[1], diameters_in_mm[0]),
-
-            (0.1, angles[0], distances_in_mm[2], diameters_in_mm[2]),
-            (0.5, angles[1], distances_in_mm[2], diameters_in_mm[2]),
-            (1.0, angles[2], distances_in_mm[2], diameters_in_mm[2]),
-            (1.6, angles[3], distances_in_mm[2], diameters_in_mm[2]),
-            (2.6, angles[4], distances_in_mm[2], diameters_in_mm[2]),
-
-            (0.3, angles[0], distances_in_mm[3], diameters_in_mm[3]),
-            (0.7, angles[1], distances_in_mm[3], diameters_in_mm[3]),
-            (1.3, angles[2], distances_in_mm[3], diameters_in_mm[3]),
-            (2.3, angles[3], distances_in_mm[3], diameters_in_mm[3]),
-            (3.6, angles[4], distances_in_mm[3], diameters_in_mm[3]),
-
-            (0.2, angles[0], distances_in_mm[4], diameters_in_mm[4]),
-            (0.7, angles[1], distances_in_mm[4], diameters_in_mm[4]),
-            (1.6, angles[2], distances_in_mm[4], diameters_in_mm[4]),
-            (2.6, angles[3], distances_in_mm[4], diameters_in_mm[4]),
-
-            (0.1, angles[0], distances_in_mm[5], diameters_in_mm[5]),
-            (0.8, angles[1], distances_in_mm[5], diameters_in_mm[5]),
-            (1.8, angles[2], distances_in_mm[5], diameters_in_mm[5]),
         ]
 
-        rois = sorted(rois, reverse=True, key=lambda r: r[0])
+        rois = {
+            '0.5mm': [
+                (0.4, angles[0], distances_in_mm[0], diameters_in_mm[0]),
+                (0.2, angles[0], distances_in_mm[1], diameters_in_mm[0]),
+                (0.1, angles[0], distances_in_mm[2], diameters_in_mm[2]),
+                (0.3, angles[0], distances_in_mm[3], diameters_in_mm[3]),
+                (0.2, angles[0], distances_in_mm[4], diameters_in_mm[4]),
+                (0.1, angles[0], distances_in_mm[5], diameters_in_mm[5]),
+            ],
+            '1.0mm': [
+                (0.2, angles[1], distances_in_mm[0], diameters_in_mm[0]),
+                (0.1, angles[1], distances_in_mm[1], diameters_in_mm[0]),
+                (0.5, angles[1], distances_in_mm[2], diameters_in_mm[2]),
+                (0.7, angles[1], distances_in_mm[3], diameters_in_mm[3]),
+                (0.7, angles[1], distances_in_mm[4], diameters_in_mm[4]),
+                (0.8, angles[1], distances_in_mm[5], diameters_in_mm[5]),
+            ],
+            '2.0mm': [
+                (0.0, angles[2], distances_in_mm[0], diameters_in_mm[0]),
+                (0.3, angles[2], distances_in_mm[1], diameters_in_mm[0]),
+                (1.0, angles[2], distances_in_mm[2], diameters_in_mm[2]),
+                (1.3, angles[2], distances_in_mm[3], diameters_in_mm[3]),
+                (1.6, angles[2], distances_in_mm[4], diameters_in_mm[4]),
+                (1.8, angles[2], distances_in_mm[5], diameters_in_mm[5]),
+            ],
+
+            '3.2mm': [
+                (0.2, angles[3], distances_in_mm[0], diameters_in_mm[0]),
+                (0.6, angles[3], distances_in_mm[1], diameters_in_mm[0]),
+                (1.6, angles[3], distances_in_mm[2], diameters_in_mm[2]),
+                (2.3, angles[3], distances_in_mm[3], diameters_in_mm[3]),
+                (2.6, angles[3], distances_in_mm[4], diameters_in_mm[4]),
+            ],
+
+            '4.8mm': [
+                (0.2, angles[4], distances_in_mm[0], diameters_in_mm[0]),
+                (1.2, angles[4], distances_in_mm[1], diameters_in_mm[0]),
+                (2.6, angles[4], distances_in_mm[2], diameters_in_mm[2]),
+                (3.6, angles[4], distances_in_mm[3], diameters_in_mm[3]),
+            ],
+        }
+
+        #rois = sorted(rois, reverse=True, key=lambda r: r[0])
         phant_rad_in_px = self.phantom_radius
         phant_rad_in_mm = phant_rad_in_px / self.image.dpmm
 
         rois_d = {}
-        for roi_idx, (val, angle, dist, diam) in enumerate(rois):
-            dist_px = dist*self.image.dpmm
-            dist_per_rad = dist_px / phant_rad_in_px
-            rad_per_rad = diam/phant_rad_in_mm/2
-            rois_d[f'roi {roi_idx}'] = {'distance from center': dist_per_rad, 'angle': angle, 'roi radius': rad_per_rad*.8, 'val': val}
+        for depth, depth_rois in rois.items():
+
+            rois_d[depth] = {}
+            for roi_idx, (val, angle, dist, diam) in enumerate(depth_rois):
+                dist_px = dist*self.image.dpmm
+                dist_per_rad = dist_px / phant_rad_in_px
+                rad_per_rad = diam/phant_rad_in_mm/2
+                rois_d[depth][f'roi {roi_idx}'] = {'distance from center': dist_per_rad, 'angle': angle, 'roi radius': rad_per_rad*.8, 'val': val}
 
         return rois_d
 
@@ -1121,42 +1168,161 @@ class PTWEPIDQCDiagonal(ImagePhantomBase):
             self.image.invert()
 
 
-class PTWEPIDQCHorizontal(PTWEPIDQCDiagonal):
+    def analyze(self, low_contrast_threshold=0.05, high_contrast_threshold=0.5, invert=False, angle_override=None,
+                center_override=None, size_override=None) -> None:
+        """Analyze the phantom using the provided thresholds and settings.
 
-    _demo_filename = ''
-    common_name = 'PTW EPID QC kv Horizontal'
+        Parameters
+        ----------
+        low_contrast_threshold : float
+            This is the contrast threshold value which defines any low-contrast ROI as passing or failing.
+        high_contrast_threshold : float
+            This is the contrast threshold value which defines any high-contrast ROI as passing or failing.
+        invert : bool
+            Whether to force an inversion of the image. This is useful if pylinac's automatic inversion algorithm fails
+            to properly invert the image.
+        angle_override : None, float
+            A manual override of the angle of the phantom. If None, pylinac will automatically determine the angle. If
+            a value is passed, this value will override the automatic detection.
 
-    high_contrast_roi_settings = {
-        'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
-        'roi 2': {'distance from center': 0.70, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
-        'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
-        'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
-        'roi 5': {'distance from center': 0.52, 'angle': -2.8, 'roi radius': 0.018, 'lp/mm': 0.5},
-        'roi 6': {'distance from center': 0.35, 'angle': -2.5, 'roi radius': 0.009, 'lp/mm': 0.59},
-        'roi 7': {'distance from center': 0.52, 'angle': 2.8, 'roi radius': 0.018, 'lp/mm': 0.67},
-        'roi 8': {'distance from center': 0.35, 'angle': 2, 'roi radius': 0.009, 'lp/mm': 1.0},
-        'roi 9': {'distance from center': 0.17, 'angle': 0, 'roi radius': 0.010, 'lp/mm': 2.0},
-        'roi 10': {'distance from center': 0.35, 'angle': 180, 'roi radius': 0.008, 'lp/mm': 2.5},
-        'roi 11': {'distance from center': 0.17, 'angle': 180, 'roi radius': 0.007, 'lp/mm': 3.3},
-    }
+            .. Note::
 
+                0 is pointing from the center toward the right and positive values go counterclockwise.
 
+        center_override : None, 2-element tuple
+            A manual override of the center point of the phantom. If None, pylinac will automatically determine the center. If
+            a value is passed, this value will override the automatic detection. Format is (x, y)/(col, row).
+        size_override : None, float
+            A manual override of the relative size of the phantom. This size value is used to scale the positions of
+            the ROIs from the center. If None, pylinac will automatically determine the size.
+            If a value is passed, this value will override the automatic sizing.
 
-class PTWEPIDQCVertical(PTWEPIDQCDiagonal):
+            .. Note::
 
-    _demo_filename = ''
-    common_name = 'PTW EPID QC kV Vertical'
+                 This value is not necessarily the physical size of the phantom. It is an arbitrary value.
+        """
+        self._angle_override = angle_override
+        self._center_override = center_override
+        self._size_override = size_override
+        self._high_contrast_threshold = high_contrast_threshold
+        self._low_contrast_threshold = low_contrast_threshold
+        self._check_inversion()
+        if invert:
+            self.image.invert()
+        self._preprocess()
 
-    high_contrast_roi_settings = {
-        'roi 1': {'distance from center': 0.35, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
-        'roi 2': {'distance from center': 0.70, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
-        'roi 3': {'distance from center': 0.80, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.250},
-        'roi 4': {'distance from center': 0.45, 'angle': 300, 'roi radius': 0.080, 'lp/mm': 0.330},
-        'roi 5': {'distance from center': 0.90, 'angle': 268.5, 'roi radius': 0.018, 'lp/mm': 0.5},
-        'roi 6': {'distance from center': 0.72, 'angle': 269, 'roi radius': 0.009, 'lp/mm': 0.59},
-        'roi 7': {'distance from center': 0.90, 'angle': 271.5, 'roi radius': 0.018, 'lp/mm': 0.67},
-        'roi 8': {'distance from center': 0.72, 'angle': 271, 'roi radius': 0.009, 'lp/mm': 1.0},
-        'roi 9': {'distance from center': 0.53, 'angle': 270, 'roi radius': 0.010, 'lp/mm': 2.0},
-        'roi 10': {'distance from center': 0.34, 'angle': 270, 'roi radius': 0.008, 'lp/mm': 2.5},
-        'roi 11': {'distance from center': 0.17, 'angle': 270, 'roi radius': 0.007, 'lp/mm': 3.3},
-    }
+        self.mtf = {}
+        self.high_contrast_rois = {}
+
+        for orientation, roi_settings in self._high_contrast_roi_settings:
+            rois = self._sample_high_contrast_rois(roi_settings)
+            self.high_contrast_rois[orientation] = rois
+            spacings = [roi['lp/mm'] for roi in roi_settings.values()]
+            self.mtf[orientation] = MTF.from_high_contrast_diskset(diskset=rois, spacings=spacings)
+
+        if self.low_contrast_background_roi_settings:
+            self.low_contrast_background_rois, self.low_contrast_background_value = self._sample_low_contrast_background_rois()
+
+        self.low_contrast_rois = {}
+        for depth, roi_settings in self.low_contrast_roi_settings.items():
+            self.low_contrast_rois[depth] = self._sample_low_contrast_rois(roi_settings)
+
+    def plot_analyzed_image(self, image=True, low_contrast=True, high_contrast=True, show=True):
+        """Plot the analyzed image.
+
+        Parameters
+        ----------
+        image : bool
+            Show the image.
+        low_contrast : bool
+            Show the low contrast values plot.
+        high_contrast : bool
+            Show the high contrast values plot.
+        show : bool
+            Whether to actually show the image when called.
+        """
+        plot_low_contrast = low_contrast and any(self.low_contrast_rois)
+        plot_high_contrast = high_contrast and any(self.high_contrast_rois)
+        num_plots = sum((image, plot_low_contrast, plot_high_contrast))
+        if num_plots < 1:
+            warnings.warn("Nothing was plotted because either all parameters were false or there were no actual high/low ROIs")
+            return
+        # set up axes and make axes iterable
+        fig, axes = plt.subplots(1, num_plots)
+        fig.subplots_adjust(wspace=0.5, top=0.95)
+        if num_plots < 2:
+            axes = (axes,)
+        axes = iter(axes)
+
+        # plot the marked image
+        if image:
+            img_ax = next(axes)
+            self.image.plot(ax=img_ax, show=False)
+            # self.image.plot(ax=img_ax, show=False)
+            img_ax.axis('off')
+            img_ax.set_title(f'{self.common_name}')
+
+            # plot the outline image
+            if self.phantom_outline_object is not None:
+                outline_obj, settings = self._create_phantom_outline_object()
+                outline_obj.plot2axes(img_ax, edgecolor='g', **settings)
+            # plot the low contrast background ROIs
+            for roi in self.low_contrast_background_rois:
+                roi.plot2axes(img_ax, edgecolor='g')
+            # plot the low contrast ROIs
+            for depth, rois in self.low_contrast_rois.items():
+                for roi in rois:
+                    roi.plot2axes(img_ax, edgecolor=roi.plot_color)
+
+            # plot the high-contrast ROIs along w/ pass/fail coloration
+            for orientation, __ in self._high_contrast_roi_settings:
+                for (roi, mtf) in zip(self.high_contrast_rois[orientation], self.mtf[orientation].norm_mtfs.values()):
+                    color = 'b' if mtf > self._high_contrast_threshold else 'r'
+                    roi.plot2axes(img_ax, edgecolor=color)
+
+        # plot the low contrast value graph
+        if plot_low_contrast:
+            lowcon_ax = next(axes)
+            self._plot_lowcontrast_graph(lowcon_ax)
+
+        # plot the high contrast MTF graph
+        if plot_high_contrast:
+            hicon_ax = next(axes)
+            self._plot_highcontrast_graph(hicon_ax)
+
+        if show:
+            plt.show()
+
+    def _plot_highcontrast_graph(self, axes):
+        """Plot the high contrast ROIs to an axes."""
+        for orientation, __ in self._high_contrast_roi_settings:
+            mtf = self.mtf[orientation]
+            axes.plot(mtf.spacings, list(mtf.norm_mtfs.values()), marker='*', label=orientation)
+            axes.axhline(self._high_contrast_threshold, color='k')
+            axes.grid(True)
+            axes.set_title('High-frequency rMTF')
+            axes.set_xlabel('Line pairs / mm')
+            axes.set_ylabel('relative MTF')
+            axes.legend(loc='upper right')
+
+    def _plot_lowcontrast_graph(self, axes):
+        """Plot the low contrast ROIs to an axes."""
+
+        axes.axhline(self._low_contrast_threshold, color='m')
+        axes.grid(True)
+        axes.set_title('Low-frequency Contrast')
+        axes.set_xlabel('ROI #')
+        axes.set_ylabel('Contrast')
+        axes2 = axes.twinx()
+        axes2.set_ylabel('CNR')
+        handles = []
+        labels = []
+        for depth, low_contrast_rois in self.low_contrast_rois.items():
+            line1, = axes.plot([roi.contrast for roi in low_contrast_rois], marker='o')
+            color = line1.get_color()
+            line2, = axes2.plot([roi.contrast_to_noise for roi in low_contrast_rois], marker='^', linestyle="dashed", color=color)
+            handles.extend([line1, line2])
+            labels.extend(['Depth=%s: Contrast' % depth, 'Depth=%s: CNR' % depth])
+
+        axes.legend(labels=labels, handles=handles, loc="best", ncol=3)
+
