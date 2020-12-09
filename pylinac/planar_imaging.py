@@ -1127,7 +1127,15 @@ class PTWEPIDQC(ImagePhantomBase):
             phantom_size_pix = phantom_bbox_size_mm2 * (self.image.dpmm ** 2)
             img_center = (self.image.center.y, self.image.center.x)
 
-            regions = self._get_canny_regions(sigma=5)
+            img_copy = copy.copy(self.image)
+            img_copy.ground()
+
+            # convert to binary image with everything over 0.15
+            img_copy.array = 1.0 * (img_copy.array > 0.15)
+            c = feature.canny(img_copy)
+            labeled = measure.label(c)
+            regions = measure.regionprops(labeled, intensity_image=img_copy)
+
             regions = sorted(regions, key=lambda r: r.bbox_area, reverse=True)
 
             roi = None
@@ -1153,9 +1161,9 @@ class PTWEPIDQC(ImagePhantomBase):
         regions and then measuring the distance between those pixels.
         """
 
-        # square regions are roughly 82.5% of 1 phantom radius away from center
-        dist_from_center = 0.825*self.phantom_radius
-        search_size = 0.05*self.phantom_radius
+        # square regions are roughly 79.0% of 1 phantom radius away from center
+        dist_from_center = 0.79*self.phantom_radius
+        search_size = 0.045*self.phantom_radius
 
         corner_locs = {
             'top left': (-1, -1),
@@ -1391,7 +1399,8 @@ class PTWEPIDQC(ImagePhantomBase):
             color = line1.get_color()
             line2, = axes2.plot([roi.contrast_to_noise for roi in low_contrast_rois], marker='^', linestyle="dashed", color=color)
             handles.extend([line1, line2])
-            labels.extend(['Depth=%s: Contrast' % depth, 'Depth=%s: CNR' % depth])
+            labels.extend(['Con: Depth=%s' % depth, 'CNR: Depth=%s' % depth])
 
-        axes.legend(labels=labels, handles=handles, loc="best", ncol=3)
-
+        # axes.figure.subplots_adjust(right=0.6)
+        axes.legend(labels=labels, handles=handles, ncol=1, loc='upper right', prop={'size': 6})#(1.15, 0.25))
+        axes.set_xlim([-1, 8])
