@@ -21,6 +21,7 @@ import io
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage import feature, measure
+from skimage.draw import polygon2mask
 
 from .core.mtf import MTF
 from .core.utilities import open_path
@@ -967,6 +968,10 @@ class PTWEPIDQC(ImagePhantomBase):
     # phantom is square so bounding rect is 2xradius
     phantom_outline_object = {'Rectangle': {'width ratio': 2, 'height ratio': 2}}
 
+    high_contrast_rois = {}
+    low_contrast_rois = {}
+    distance_pixels = {}
+
     _high_contrast_roi_settings_diag = {
         'roi d1': {'distance from center': 0.36, 'angle': 225, 'roi radius': 0.100, 'lp/mm': 0.125},
         'roi d2': {'distance from center': 0.73, 'angle': 250, 'roi radius': 0.100, 'lp/mm': 0.167},
@@ -1140,6 +1145,60 @@ class PTWEPIDQC(ImagePhantomBase):
 
             return roi
 
+    def _phantom_dimension_calc(self):
+        """
+        Find the distance between the four corner blocks.  This is
+        done by first selecting 4 rectangular regions in the approximate location of where
+        the blocks should be.  Then looking for the minimum valued pixel in those
+        regions and then measuring the distance between those pixels.
+        """
+
+        # square regions are roughly 82.5% of 1 phantom radius away from center
+        dist_from_center = 0.825*self.phantom_radius
+        search_size = 0.05*self.phantom_radius
+
+        corner_locs = {
+            'top left': (-1, -1),
+            'top right': (1, -1),
+            'bottom right': (1, 1),
+            'bottom left': (-1, 1),
+        }
+        pixels = {}
+        for loc, (xpos, ypos) in corner_locs.items():
+
+            cx = self.phantom_center.x + xpos*dist_from_center
+            cy = self.phantom_center.y + ypos*dist_from_center
+
+            # create square mask inside of corner box
+            contour = np.array([
+                (cx - search_size, cy - search_size),
+                (cx - search_size, cy + search_size),
+                (cx + search_size, cy + search_size),
+                (cx + search_size, cy - search_size),
+                (cx - search_size, cy - search_size),
+            ])
+            mask = polygon2mask(self.image.array.shape, contour)
+
+            # now look for location of min pixel in that region
+            arr = np.ma.array(self.image.array.copy(), mask=~mask)
+            min_pixel = np.unravel_index(arr.argmin(), arr.shape)
+
+            pixels[loc] = {
+                'contour': contour,
+                'point': Point(x=min_pixel[1], y=min_pixel[0]),
+            }
+
+        dpmm = self.image.dpmm
+        self.distance_results = {
+            'regions': pixels,
+            'sides': {
+                'left': pixels['top left']['point'].distance_to(pixels['bottom left']['point'])/dpmm,
+                'right': pixels['top right']['point'].distance_to(pixels['bottom right']['point'])/dpmm,
+                'top': pixels['top left']['point'].distance_to(pixels['top right']['point'])/dpmm,
+                'bottom': pixels['bottom left']['point'].distance_to(pixels['bottom right']['point'])/dpmm,
+            }
+        }
+
     def _phantom_center_calc(self) -> Point:
         """The center point of the phantom.
 
@@ -1211,6 +1270,8 @@ class PTWEPIDQC(ImagePhantomBase):
             self.image.invert()
         self._preprocess()
 
+        self._phantom_dimension_calc()
+
         self.mtf = {}
         self.high_contrast_rois = {}
 
@@ -1269,16 +1330,24 @@ class PTWEPIDQC(ImagePhantomBase):
             # plot the low contrast background ROIs
             for roi in self.low_contrast_background_rois:
                 roi.plot2axes(img_ax, edgecolor='g')
+
             # plot the low contrast ROIs
             for depth, rois in self.low_contrast_rois.items():
                 for roi in rois:
                     roi.plot2axes(img_ax, edgecolor=roi.plot_color)
 
+            if self.distance_results:
+                for region in self.distance_results['regions'].values():
+                    plt.plot(*zip(*region['contour']), color='yellow')
+                    x, y = region['point'].x, region['point'].y
+                    plt.plot([x], [y], 'o', color='yellow', markersize=2)
+
             # plot the high-contrast ROIs along w/ pass/fail coloration
-            for orientation, __ in self._high_contrast_roi_settings:
-                for (roi, mtf) in zip(self.high_contrast_rois[orientation], self.mtf[orientation].norm_mtfs.values()):
-                    color = 'b' if mtf > self._high_contrast_threshold else 'r'
-                    roi.plot2axes(img_ax, edgecolor=color)
+            if self.high_contrast_rois:
+                for orientation, __ in self._high_contrast_roi_settings:
+                    for (roi, mtf) in zip(self.high_contrast_rois[orientation], self.mtf[orientation].norm_mtfs.values()):
+                        color = 'b' if mtf > self._high_contrast_threshold else 'r'
+                        roi.plot2axes(img_ax, edgecolor=color)
 
         # plot the low contrast value graph
         if plot_low_contrast:
