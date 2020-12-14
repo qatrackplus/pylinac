@@ -53,7 +53,7 @@ To get started, install the package, run the demos, view the API docs, and learn
 Installation
 ------------
 
-Install via ``pip``, just check the `dependencies <http://pylinac.readthedocs.io/en/stable/installation.html#dependencies>`_ first:
+Install via ``pip``:
 
 .. code-block:: bash
 
@@ -118,7 +118,7 @@ Below are the high-level tools currently available:
             # TRS-398 is very similar and just as easy!
 
 * `Planar Phantom Analysis (Leeds TOR, StandardImaging QC-3, Las Vegas, Doselab MC2 (kV & MV)) <http://pylinac.readthedocs.org/en/stable/planar_imaging.html>`_ -
-   The planar imaging module analyzes 2D phantoms. Currently the LeedsTOR kV phantom, Standard Imaging QC-3 MV phantom, and Las Vegas phantom are supported,
+   The planar imaging module analyzes 2D phantoms. Currently the LeedsTOR kV phantom, Standard Imaging QC-3 MV phantom, Las Vegas phantom, Doselab MC2 (kV and MV) are supported,
    and more phantoms are in the works!
 
    Features:
@@ -132,7 +132,7 @@ Below are the high-level tools currently available:
 
    .. code-block:: python
 
-        from pylinac import LeedsTOR, StandardImagingQC3, LasVegas
+        from pylinac import LeedsTOR, StandardImagingQC3, LasVegas, DoselabMC2kV, DoselabMC2MV
 
         leeds = LeedsTOR("my_leeds.dcm")
         leeds.analyze()
@@ -148,6 +148,8 @@ Below are the high-level tools currently available:
         lv.analyze()
         lv.plot_analyzed_image()
         lv.publish_pdf('lv.pdf', open_file=True)  # open the PDF after publishing
+
+        ...
 
 * `Winston-Lutz Analysis <http://pylinac.readthedocs.org/en/stable/winston_lutz.html>`_ -
     The Winston-Lutz module analyzes EPID images taken of a small radiation field and BB to determine the 2D
@@ -250,6 +252,7 @@ Below are the high-level tools currently available:
     * **Automatic testing of all major modules** - Major modules are automatically registered and analyzed.
     * **Any scan protocol** - Scan your CatPhan with any protocol; or even scan it in a regular CT scanner.
       Any field size or field extent is allowed.
+    * **Customize modules** - You can easily override settings in the event you have a custom scenario such as a partial scan.
 
     Example script:
 
@@ -344,6 +347,8 @@ Below are the high-level tools currently available:
         fs.analyze(flatness_method='varian', symmetry_method='varian', vert_position=0.5, horiz_position=0.5)
         # print results
         print(fs.results())
+        # plot results
+        fs.plot_analyzed_image()
         # publish a PDF file
         fs.publish_pdf(filename='myFS.pdf')
 

@@ -1,8 +1,8 @@
 
 import sys
 
-__version__ = '2.3.1.12'
-__version_info__ = (2, 3, 1, 12)
+__version__ = '2.4.0'
+__version_info__ = (2, 4, 0)
 
 # check python version
 if sys.version_info[0] < 3 or sys.version_info[1] < 6:
@@ -29,3 +29,4 @@ from pylinac.starshot import Starshot
 from pylinac.vmat import DRMLC, DRGS
 from pylinac.winston_lutz import WinstonLutz
 from pylinac import calibration
+from pylinac.calibration import tg51, trs398

@@ -2,7 +2,6 @@
 import copy
 from collections import Counter
 from datetime import datetime
-from functools import lru_cache
 from io import BytesIO
 import re
 import os.path as osp
@@ -16,10 +15,9 @@ import numpy as np
 from PIL import Image as pImage
 from scipy import ndimage
 import scipy.ndimage.filters as spf
-from skimage.transform import resize
+import argue
 
-from .utilities import is_close, minmax_scale
-from .decorators import type_accept, value_accept
+from .utilities import is_close
 from .geometry import Point
 from .io import get_url, TemporaryZipDirectory, retrieve_filenames, is_dicom_image, retrieve_dicom_file
 from .profile import stretch as stretcharray
@@ -32,15 +30,6 @@ IMAGE = 'Image'
 MM_PER_INCH = 25.4
 
 ImageLike = Union['DicomImage', 'ArrayImage', 'FileImage', 'LinacDicomImage']
-
-
-def prepare_for_classification(path: str):
-    """Load and resize the image and return as flattened numpy array. Used when converting an image into
-    a classification feature dataset"""
-    img = load(path, dtype=np.float32)
-    resized_img = resize(img.array, output_shape=(100, 100)).flatten()
-    rescaled_img = minmax_scale(resized_img)
-    return rescaled_img
 
 
 def equate_images(image1: ImageLike, image2: ImageLike) -> Tuple[ImageLike, ImageLike]:
@@ -158,7 +147,7 @@ def load(path: str, **kwargs) -> ImageLike:
         raise TypeError(f"The argument `{path}` was not found to be a valid DICOM file, Image file, or array")
 
 
-def load_url(url: str, progress_bar: bool=True, **kwargs):
+def load_url(url: str, progress_bar: bool=True, **kwargs) -> ImageLike:
     """Load an image from a URL.
 
     Parameters
@@ -175,8 +164,8 @@ def load_url(url: str, progress_bar: bool=True, **kwargs):
     return load(filename, **kwargs)
 
 
-@value_accept(method=('mean', 'max', 'sum'))
-def load_multiples(image_file_list: List, method: str='mean', stretch: bool=True, **kwargs) -> ImageLike:
+@argue.options(method=('mean', 'max', 'sum'))
+def load_multiples(image_file_list: List, method: str='mean', stretch_each: bool=True, **kwargs) -> ImageLike:
     """Combine multiple image files into one superimposed image.
 
     Parameters
@@ -185,10 +174,10 @@ def load_multiples(image_file_list: List, method: str='mean', stretch: bool=True
         A list of the files to be superimposed.
     method : {'mean', 'max', 'sum'}
         A string specifying how the image values should be combined.
-    stretch : bool
+    stretch_each : bool
         Whether to normalize the images being combined by stretching their high/low values to the same values across images.
     kwargs :
-        Further keyword arguments are passed to the load function.
+        Further keyword arguments are passed to the load function and stretch function.
 
     Examples
     --------
@@ -206,8 +195,8 @@ def load_multiples(image_file_list: List, method: str='mean', stretch: bool=True
     for img in img_list:
         if img.shape != first_img.shape:
             raise ValueError("Images were not the same shape")
-        if stretch:
-            img.array = stretcharray(img.array, fill_dtype=first_img.array.dtype)
+        if stretch_each:
+            img.array = stretcharray(img.array, fill_dtype=kwargs.get('dtype'))
 
     # stack and combine arrays
     new_array = np.dstack(tuple(img.array for img in img_list))
@@ -220,7 +209,6 @@ def load_multiples(image_file_list: List, method: str='mean', stretch: bool=True
 
     # replace array of first object and return
     first_img.array = combined_arr
-    first_img.check_inversion_by_histogram()
     return first_img
 
 
@@ -268,22 +256,22 @@ class BaseImage:
         self.base_path = osp.basename(path)
 
     @property
-    def truncated_path(self):
+    def truncated_path(self) -> str:
         if len(self.path) > PATH_TRUNCATION_LENGTH:
             return self.path[:PATH_TRUNCATION_LENGTH // 2] + '...' + self.path[-PATH_TRUNCATION_LENGTH // 2:]
         else:
             return self.path
 
     @classmethod
-    def from_multiples(cls, filelist: List[str], method: str='mean', stretch: bool=True, **kwargs):
+    def from_multiples(cls, filelist: List[str], method: str='mean', stretch: bool=True, **kwargs) -> ImageLike:
         """Load an instance from multiple image items. See :func:`~pylinac.core.image.load_multiples`."""
         return load_multiples(filelist, method, stretch, **kwargs)
 
     @property
     def center(self) -> Point:
         """Return the center position of the image array as a Point."""
-        x_center = self.shape[1] / 2
-        y_center = self.shape[0] / 2
+        x_center = (self.shape[1] / 2) - 0.5
+        y_center = (self.shape[0] / 2) - 0.5
         return Point(x_center, y_center)
 
     @property
@@ -309,7 +297,7 @@ class BaseImage:
                 date = 'Unknown'
         return date
 
-    def plot(self, ax: plt.Axes=None, show: bool=True, clear_fig: bool=False, **kwargs):
+    def plot(self, ax: plt.Axes=None, show: bool=True, clear_fig: bool=False, **kwargs) -> plt.Axes:
         """Plot the image.
 
         Parameters
@@ -330,8 +318,8 @@ class BaseImage:
             plt.show()
         return ax
 
-    @value_accept(kind=('median', 'gaussian'))
-    def filter(self, size: Union[float, int]=0.05, kind: str='median'):
+    @argue.options(kind=('median', 'gaussian'))
+    def filter(self, size: Union[float, int]=0.05, kind: str='median') -> None:
         """Filter the profile.
 
         Parameters
@@ -356,8 +344,7 @@ class BaseImage:
         elif kind == 'gaussian':
             self.array = ndimage.gaussian_filter(self.array, sigma=size)
 
-    @type_accept(pixels=int)
-    def crop(self, pixels: int=15, edges: Tuple[str, ...]=('top', 'bottom', 'left', 'right')):
+    def crop(self, pixels: int=15, edges: Tuple[str, ...]=('top', 'bottom', 'left', 'right')) -> None:
         """Removes pixels on all edges of the image in-place.
 
         Parameters
@@ -378,8 +365,7 @@ class BaseImage:
         if 'right' in edges:
             self.array = self.array[:, :-pixels]
 
-    @type_accept(pixels=int)
-    def remove_edges(self, pixels: int=15, edges: Tuple[str, ...]=('top', 'bottom', 'left', 'right')):
+    def remove_edges(self, pixels: int=15, edges: Tuple[str, ...]=('top', 'bottom', 'left', 'right')) -> None:
         """Removes pixels on all edges of the image in-place.
 
         Parameters
@@ -392,17 +378,16 @@ class BaseImage:
         DeprecationWarning("`remove_edges` is deprecated and will be removed in a future version. Use `crop` instead")
         self.crop(pixels=pixels, edges=edges)
 
-    def flipud(self):
+    def flipud(self) -> None:
         """ Flip the image array upside down in-place. Wrapper for np.flipud()"""
         self.array = np.flipud(self.array)
 
-    def invert(self):
+    def invert(self) -> None:
         """Invert (imcomplement) the image."""
         orig_array = self.array
         self.array = -orig_array + orig_array.max() + orig_array.min()
 
-    @type_accept(direction=str, amount=int)
-    def roll(self, direction: str='x', amount: int=1):
+    def roll(self, direction: str='x', amount: int=1) -> None:
         """Roll the image array around in-place. Wrapper for np.roll().
 
         Parameters
@@ -415,13 +400,12 @@ class BaseImage:
         axis = 1 if direction == 'x' else 0
         self.array = np.roll(self.array, amount, axis=axis)
 
-    @type_accept(n=int)
-    def rot90(self, n: int=1):
+    def rot90(self, n: int=1) -> None:
         """Wrapper for numpy.rot90; rotate the array by 90 degrees CCW."""
         self.array = np.rot90(self.array, n)
 
-    @value_accept(kind=('high', 'low'))
-    def threshold(self, threshold: int, kind: str='high'):
+    @argue.options(kind=('high', 'low'))
+    def threshold(self, threshold: int, kind: str='high') -> None:
         """Apply a high- or low-pass threshold filter.
 
         Parameters
@@ -438,7 +422,7 @@ class BaseImage:
         else:
             self.array = np.where(self.array <= threshold, self, 0)
 
-    def as_binary(self, threshold: int):
+    def as_binary(self, threshold: int) -> ImageLike:
         """Return a binary (black & white) image based on the given threshold.
 
         Parameters
@@ -453,8 +437,7 @@ class BaseImage:
         array = np.where(self.array >= threshold, 1, 0)
         return ArrayImage(array)
 
-    @type_accept(point=(Point, tuple))
-    def dist2edge_min(self, point: Union[Point, Tuple]):
+    def dist2edge_min(self, point: Union[Point, Tuple]) -> float:
         """Calculates minimum distance from given point to image edges.
 
         Parameters
@@ -492,7 +475,7 @@ class BaseImage:
         self.array -= min_val
         return min_val
 
-    def normalize(self, norm_val: Union[str, NumberLike]='max'):
+    def normalize(self, norm_val: Union[str, NumberLike]='max') -> None:
         """Normalize the image values to the given value.
 
         Parameters
@@ -507,8 +490,7 @@ class BaseImage:
             val = norm_val
         self.array = self.array / val
 
-    @type_accept(box_size=int)
-    def check_inversion(self, box_size: int=20, position: Sequence=(0.0, 0.0)):
+    def check_inversion(self, box_size: int=20, position: Sequence=(0.0, 0.0)) -> None:
         """Check the image for inversion by sampling the 4 image corners.
         If the average value of the four corners is above the average pixel value, then it is very likely inverted.
 
@@ -529,7 +511,7 @@ class BaseImage:
         if avg > np.mean(self.array.flatten()):
             self.invert()
 
-    def check_inversion_by_histogram(self, percentiles=(5, 50, 95)):
+    def check_inversion_by_histogram(self, percentiles=(5, 50, 95)) -> bool:
         """Check the inversion of the image using histogram analysis. The assumption is that the image
         is mostly background-like values and that there is a relatively small amount of dose getting to the image
         (e.g. a picket fence image). This function looks at the distance from one percentile to another to determine
@@ -541,17 +523,20 @@ class BaseImage:
             The 3 percentiles to compare. Default is (5, 50, 95). Recommend using (x, 50, y). To invert the other way
             (where pixel value is *decreasing* with dose, reverse the percentiles, e.g. (95, 50, 5).
         """
+        was_inverted = False
         p5 = np.percentile(self.array, percentiles[0])
         p50 = np.percentile(self.array, percentiles[1])
         p95 = np.percentile(self.array, percentiles[2])
         dist_to_5 = abs(p50 - p5)
         dist_to_95 = abs(p50 - p95)
         if dist_to_5 > dist_to_95:
+            was_inverted = True
             self.invert()
+        return was_inverted
 
-    @value_accept(threshold=(0.0, 1.0))
+    @argue.bounds(threshold=(0.0, 1.0))
     def gamma(self, comparison_image: ImageLike, doseTA: NumberLike=1, distTA: NumberLike=1,
-              threshold: NumberLike=0.1, ground: bool=True, normalize: bool=True):
+              threshold: NumberLike=0.1, ground: bool=True, normalize: bool=True) -> np.ndarray:
         """Calculate the gamma between the current image (reference) and a comparison image.
 
         .. versionadded:: 1.2
@@ -627,11 +612,11 @@ class BaseImage:
 
         return gamma_map
 
-    def as_type(self, dtype) -> np.array:
+    def as_type(self, dtype) -> np.ndarray:
         return self.array.astype(dtype)
 
     @property
-    def shape(self) -> Tuple:
+    def shape(self) -> Tuple[int, int]:
         return self.array.shape
 
     @property
@@ -643,17 +628,17 @@ class BaseImage:
         return self.array.ndim
 
     @property
-    def dtype(self):
+    def dtype(self) -> np.dtype:
         return self.array.dtype
 
     def sum(self) -> float:
         return self.array.sum()
 
-    def ravel(self) -> np.array:
+    def ravel(self) -> np.ndarray:
         return self.array.ravel()
 
     @property
-    def flat(self) -> np.array:
+    def flat(self) -> np.ndarray:
         return self.array.flat
 
     def __len__(self):
@@ -720,7 +705,7 @@ class DicomImage(BaseImage):
         """
         if self.metadata.SOPClassUID.name == 'CT Image Storage':
             self.array = (self.array - int(self.metadata.RescaleIntercept)) / int(self.metadata.RescaleSlope)
-        self.metadata.PixelData = self.array.astype(self._original_dtype).tostring()
+        self.metadata.PixelData = self.array.astype(self._original_dtype).tobytes()
         self.metadata.save_as(filename)
         return filename
 
@@ -781,21 +766,21 @@ class LinacDicomImage(DicomImage):
         self._use_filenames = use_filenames
 
     @property
-    def gantry_angle(self) -> NumberLike:
+    def gantry_angle(self) -> float:
         """Gantry angle of the irradiation."""
-        return self._get_axis(self.gantry_keyword.lower(), 'GantryAngle')
+        return self._get_axis_value(self.gantry_keyword.lower(), 'GantryAngle')
 
     @property
-    def collimator_angle(self) -> NumberLike:
+    def collimator_angle(self) -> float:
         """Collimator angle of the irradiation."""
-        return self._get_axis(self.collimator_keyword.lower(), 'BeamLimitingDeviceAngle')
+        return self._get_axis_value(self.collimator_keyword.lower(), 'BeamLimitingDeviceAngle')
 
     @property
-    def couch_angle(self) -> NumberLike:
+    def couch_angle(self) -> float:
         """Couch angle of the irradiation."""
-        return self._get_axis(self.couch_keyword.lower(), 'PatientSupportAngle')
+        return self._get_axis_value(self.couch_keyword.lower(), 'PatientSupportAngle')
 
-    def _get_axis(self, axis_str: str, axis_dcm_attr: str) -> NumberLike:
+    def _get_axis_value(self, axis_str: str, axis_dcm_attr: str) -> float:
         """Retrieve the value of the axis. This will first look in the file name for the value.
         If not in the filename then it will look in the DICOM metadata. If the value can be found in neither
         then a value of 0 is assumed.
@@ -883,7 +868,7 @@ class FileImage(BaseImage):
         self.sid = sid
 
     @property
-    def dpi(self) -> NumberLike:
+    def dpi(self) -> float:
         """The dots-per-inch of the image, defined at isocenter."""
         dpi = None
         for key in ('dpi', 'resolution'):
@@ -898,7 +883,7 @@ class FileImage(BaseImage):
         return dpi
 
     @property
-    def dpmm(self) -> NumberLike:
+    def dpmm(self) -> float:
         """The Dots-per-mm of the image, defined at isocenter. E.g. if an EPID image is taken at 150cm SID,
         the dpmm will scale back to 100cm."""
         try:
@@ -934,7 +919,7 @@ class ArrayImage(BaseImage):
         self.sid = sid
 
     @property
-    def dpmm(self) -> Optional[NumberLike]:
+    def dpmm(self) -> Optional[float]:
         """The Dots-per-mm of the image, defined at isocenter. E.g. if an EPID image is taken at 150cm SID,
         the dpmm will scale back to 100cm."""
         try:
@@ -943,7 +928,7 @@ class ArrayImage(BaseImage):
             return
 
     @property
-    def dpi(self) -> Optional[NumberLike]:
+    def dpi(self) -> Optional[float]:
         """The dots-per-inch of the image, defined at isocenter."""
         dpi = None
         if self._dpi is not None:
@@ -1044,8 +1029,7 @@ class DicomImageStack:
             raise ValueError("The minimum number images from the same study were not found")
         return [i for i in self.images if i.metadata.SeriesInstanceUID == most_common_uid[0]]
 
-    @type_accept(slice=int)
-    def plot(self, slice: int=0):
+    def plot(self, slice: int=0) -> None:
         """Plot a slice of the DICOM dataset.
 
         Parameters
@@ -1061,10 +1045,10 @@ class DicomImageStack:
         otherwise the individual image metadata should be used."""
         return self.images[0].metadata
 
-    def __getitem__(self, item):
+    def __getitem__(self, item) -> DicomImage:
         return self.images[item]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key, value: DicomImage):
         self.images[key] = value
 
     def __len__(self):

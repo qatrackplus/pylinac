@@ -20,7 +20,9 @@ high and low contrast ROIs.
 Running the Leeds Demo
 ^^^^^^^^^^^^^^^^^^^^^^
 
-To run the Leeds TOR demo, create a script or start an interpreter session and input::
+To run the Leeds TOR demo, create a script or start an interpreter session and input:
+
+.. code-block:: python
 
     from pylinac import LeedsTOR
 
@@ -28,7 +30,11 @@ To run the Leeds TOR demo, create a script or start an interpreter session and i
 
 A figure showing the phantom, low contrast plot, and RMTF will be generated:
 
-.. image:: images/leeds_analysis.png
+.. plot::
+    :include-source: false
+
+    from pylinac import LeedsTOR
+    LeedsTOR.run_demo()
 
 Image Acquisition
 ^^^^^^^^^^^^^^^^^
@@ -40,38 +46,53 @@ high-contrast line pairs.
 Typical Use
 ^^^^^^^^^^^
 
-Import the class::
+Import the class:
+
+.. code-block:: python
 
     from pylinac import LeedsTOR
 
 The minimum needed to get going is to:
 
-* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor::
+* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor:
+
+  .. code-block:: python
 
       leeds = LeedsTOR('my/leeds.dcm')
 
-  Alternatively, a URL can be passed::
+  Alternatively, a URL can be passed:
+
+  .. code-block:: python
 
       leeds = LeedsTOR.from_url('http://myserver.com/leeds')
 
-  You may also use the demo image::
+  You may also use the demo image:
+
+  .. code-block:: python
 
       leeds = LeedsTOR.from_demo_image()
 
 * **Analyze the images** -- Analyze the image using the :meth:`~pylinac.planar_imaging.LeedsTOR.analyze` method. The
-  low and high contrast thresholds can be specified::
+  low and high contrast thresholds can be specified:
 
-      leeds.analyze(low_contrast_threshold=0.01, hi_contrast_threshold=0.5)
+  .. code-block:: python
+
+     leeds.analyze(low_contrast_threshold=0.01, high_contrast_threshold=0.5)
 
 * **View the results** -- The results of analysis can be viewed with the :meth:`~pylinac.planar_imaging.LeedsTOR.plot_analyzed_image`
   method.
 
-    .. code-block:: python
+  .. code-block:: python
 
       leeds.plot_analyzed_image()
 
+  .. plot::
+      :include-source: false
 
-  .. image:: images/leeds_analysis.png
+        from pylinac import LeedsTOR
+        lt = LeedsTOR.from_demo_image()
+        lt.analyze(low_contrast_threshold=0.01, high_contrast_threshold=0.5)
+        lt.plot_analyzed_image()
 
   Note that each subimage can be turned on or off.
 
@@ -80,11 +101,15 @@ The minimum needed to get going is to:
       # don't show the low contrast plot
       leeds.plot_analyzed_image(low_contrast=False)
 
-  The figure can also be saved::
+  The figure can also be saved:
+
+  .. code-block:: python
 
       leeds.save_analyzed_image('myprofile.png')
 
- A PDF report can also be generated::
+  A PDF report can also be generated:
+
+  .. code-block:: python
 
       leeds.publish_pdf('leeds_october16.pdf')
 
@@ -109,6 +134,8 @@ The algorithm works like such:
     .. warning:: Analysis can fail or give unreliable results if any Restriction is violated.
 
 * The phantom must not be touching or close to any image edges.
+* The blades should be fully or mostly open to correctly invert the image. This may not result in a complete failure,
+  but you may have to force-invert the analysis if this case isn't true (i.e. ``myleeds.analyze(invert=True)``).
 
 **Pre-Analysis**
 
@@ -177,7 +204,9 @@ just as the Leeds phantom, but with different geometric configurations.
 Running the StandardImagingQC3 Demo
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-To run the Standard Imaging demo, create a script or start an interpreter session and input::
+To run the Standard Imaging demo, create a script or start an interpreter session and input:
+
+.. code-block:: python
 
     from pylinac import StandardImagingQC3
 
@@ -185,7 +214,11 @@ To run the Standard Imaging demo, create a script or start an interpreter sessio
 
 A figure showing the phantom, low contrast plot, and RMTF will be generated:
 
-.. image:: images/pipspro_analysis.png
+.. plot::
+    :include-source: false
+
+    import pylinac
+    pylinac.StandardImagingQC3.run_demo()
 
 .. _pipspro_image_acquisition:
 
@@ -199,42 +232,64 @@ open the jaws to fully cover the EPID.
 Typical Use
 ^^^^^^^^^^^
 
-Import the class::
+Import the class:
+
+.. code-block:: python
 
     from pylinac import StandardImagingQC3
 
 The minimum needed to get going is to:
 
-* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor::
+* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor:
+
+  .. code-block:: python
 
       qc3 = StandardImagingQC3('path/to/qc3.dcm')
 
-  Alternatively, a URL can be passed::
+  Alternatively, a URL can be passed:
+
+  .. code-block:: python
 
       qc3 = StandardImagingQC3.from_url('http://myserver.com/myQC3image.dcm')
 
-  You may also use the demo image::
+  You may also use the demo image:
+
+  .. code-block:: python
 
       qc3 = StandardImagingQC3.from_demo_image()
 
 * **Analyze the images** -- Analyze the image using the :meth:`~pylinac.planar_imaging.StandardImagingQC3.analyze` method. The
-  low and high contrast thresholds can be specified::
+  low and high contrast thresholds can be specified:
+
+  .. code-block:: python
 
       qc3.analyze(low_contrast_threshold=0.01, high_contrast_threshold=0.5)
 
 * **View the results** -- The results of analysis can be viewed with the :meth:`~pylinac.planar_imaging.StandardImagingQC3.plot_analyzed_image`
-  method. Note that each subimage can be turned on or off.::
+  method. Note that each subimage can be turned on or off.:
+
+  .. code-block:: python
 
       # don't show the low contrast plot
       qc3.plot_analyzed_image(low_contrast=False)
 
-  .. image:: images/pipspro_no_lc.png
+  .. plot::
+      :include-source: false
 
-  The figure can also be saved::
+      import pylinac
+      qc = pylinac.StandardImagingQC3.from_demo_image()
+      qc.analyze(low_contrast_threshold=0.01, high_contrast_threshold=0.5)
+      qc.plot_analyzed_image(low_contrast=False)
+
+  The figure can also be saved:
+
+  .. code-block:: python
 
       qc3.save_analyzed_image('myqc3.png')
 
- A PDF report can also be generated::
+  A PDF report can also be generated:
+
+  .. code-block:: python
 
       qc3.publish_pdf('myqc3-june.pdf')
 
@@ -246,7 +301,6 @@ The algorithm works like such:
 **Allowances**
 
 * The images can be acquired at any SID.
-* The phantom can be at any distance.
 * The images can be acquired with any EPID.
 * The phantom can be somewhat offset from the ideal 45 degree orientation.
 
@@ -308,7 +362,11 @@ To run the Las Vegas demo, create a script or start an interpreter session and i
 
 A figure showing the phantom and low contrast plot will be generated:
 
-.. image:: images/las_vegas_analyzed.png
+.. plot::
+    :include-source: false
+
+    import pylinac
+    pylinac.LasVegas.run_demo()
 
 Image Acquisition
 ^^^^^^^^^^^^^^^^^
@@ -323,40 +381,64 @@ shifts, and inversions. Best practices for the Las Vegas phantom:
 Typical Use
 ^^^^^^^^^^^
 
-Import the class::
+Import the class:
+
+.. code-block:: python
 
     from pylinac import LasVegas
 
 The minimum needed to get going is to:
 
-* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor::
+* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor:
+
+  .. code-block:: python
 
       lv = LasVegas('path/to/lasvegasphan.dcm')
 
-  Alternatively, a URL can be passed::
+  Alternatively, a URL can be passed:
+
+  .. code-block:: python
 
       lv = LasVegas.from_url('http://myserver.com/myLVimage.dcm')
 
-  You may also use the demo image::
+  You may also use the demo image:
+
+  .. code-block:: python
 
       lv = LasVegas.from_demo_image()
 
 * **Analyze the images** -- Analyze the image using the :meth:`~pylinac.planar_imaging.LasVegas.analyze` method. The
-  low and high contrast thresholds can be specified::
+  low and high contrast thresholds can be specified:
+
+  .. code-block:: python
 
       lv.analyze(low_contrast_threshold=0.01)
 
 * **View the results** -- The results of analysis can be viewed with the :meth:`~pylinac.planar_imaging.LasVegas.plot_analyzed_image`
-  method. Note that each subimage can be turned on or off.::
+  method. Note that each subimage can be turned on or off:
+
+  .. code-block:: python
 
       # don't show the low contrast plot
       lv.plot_analyzed_image(low_contrast=False)
 
-  The figure can also be saved::
+  .. plot::
+      :include-source: false
+
+      import pylinac
+      lv = pylinac.LasVegas.from_demo_image()
+      lv.analyze(low_contrast_threshold=0.01)
+      lv.plot_analyzed_image(low_contrast=False)
+
+  The figure can also be saved:
+
+  .. code-block:: python
 
       lv.save_analyzed_image('mylvplot.png')
 
- A PDF report can also be generated::
+  A PDF report can also be generated:
+
+  .. code-block:: python
 
       lv.publish_pdf('lv-3-10-17.pdf')
 
@@ -415,7 +497,11 @@ To run the MC2 demo, create a script or start an interpreter session and input:
 
 A figure showing the phantom and contrast ROIs and graphs will be generated:
 
-.. image:: images/doselabmv_analyzed.png
+.. plot::
+    :include-source: false
+
+    import pylinac
+    pylinac.DoselabMC2MV.run_demo()
 
 Image Acquisition
 ^^^^^^^^^^^^^^^^^
@@ -430,41 +516,57 @@ shifts and inversions. Best practices for the Doselab phantom:
 Typical Use
 ^^^^^^^^^^^
 
-Import the class::
+Import the class:
+
+.. code-block:: python
 
     from pylinac import DoselabMC2MV, DoselabMC2kV
 
 For the following examples the kV and MV class can be used interchangeably.
 The minimum needed to get going is to:
 
-* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor::
+* **Load image** -- Load the planar image as you would any other class: by passing the path directly to the constructor:
+
+  .. code-block:: python
 
       dl = DoselabMC2MV('path/to/doselabmv_phan.dcm')
 
-  Alternatively, a URL can be passed::
+  Alternatively, a URL can be passed:
+
+  .. code-block:: python
 
       dl = DoselabMC2MV.from_url('http://myserver.com/myDLimage.dcm')
 
-  You may also use the demo image::
+  You may also use the demo image:
+
+  .. code-block:: python
 
       dl = DoselabMC2MV.from_demo_image()
 
 * **Analyze the images** -- Analyze the image using the :meth:`~pylinac.planar_imaging.DoselabMC2MV.analyze` method. The
-  low and high contrast thresholds can be specified::
+  low and high contrast thresholds can be specified:
+
+  .. code-block:: python
 
       dl.analyze(low_contrast_threshold=0.01, high_contrast_threshold=0.4)
 
 * **View the results** -- The results of analysis can be viewed with the :meth:`~pylinac.planar_imaging.DoselabMC2MV.plot_analyzed_image`
-  method. Note that each subimage can be turned on or off.::
+  method. Note that each subimage can be turned on or off:
+
+  .. code-block:: python
 
       # don't show the low contrast plot
       dl.plot_analyzed_image(low_contrast=False, high_contrast=False)
 
-  The figure can also be saved::
+  The figure can also be saved:
+
+  .. code-block:: python
 
       dl.save_analyzed_image('mydlplot.png')
 
- A PDF report can also be generated::
+  A PDF report can also be generated:
+
+  .. code-block:: python
 
       dl.publish_pdf('dl-3-10-17.pdf')
 
@@ -499,7 +601,7 @@ phantoms:
 
 1. Subclass the `ImagePhantomBase` class:
 
-    .. python::
+    .. code-block:: python
 
         from pylinac.planar_imaging import ImagePhantomBase
 
@@ -508,14 +610,14 @@ phantoms:
 
 2. Define the `common_name`. This is the name shown in plots and PDF reports.
 
-    .. python::
+    .. code-block:: python
 
         class CustomPhantom(ImagePhantomBase):
             common_name = 'Custom Phantom v2.0'
 
 3. If the phantom has a high-contrast measurement object, define the ROI locations.
 
-    .. python::
+    .. code-block:: python
 
         class CustomPhantom(ImagePhantomBase):
             ...
@@ -531,7 +633,7 @@ phantoms:
 
 4. If the phantom has a low-contrast measurement object, define the sample ROI and background ROI locations.
 
-    .. python::
+    .. code-block:: python
 
         class CustomPhantom(ImagePhantomBase):
             ...
@@ -552,7 +654,7 @@ phantoms:
 5. Optionally, add a phantom outline object. This helps visualize the algorithm's determination of the size, center, and angle.
    If no object is defined, then no outline will be shown. This step is optional.
 
-    .. python::
+    .. code-block:: python
 
         class CustomPhantom(ImagePhantomBase):
             ...
@@ -564,7 +666,7 @@ At this point you could technically call it done. You would need to always overr
 To automate this part you will need to fill in the associated logic. You can use whatever method you like. What I have
 found most useful is to use an edge detection algorithm and find the outline of the phantom.
 
-    .. python::
+    .. code-block:: python
 
         class CustomPhantom(ImagePhantomBase):
             ...
@@ -592,7 +694,7 @@ Adjust an ROI on an existing phantom
 
 To adjust an ROI, override the relevant attribute or create a subclass. E.g. to move the 2nd ROI of the high-contrast ROI set of the QC-3 phantom:
 
-.. python::
+.. code-block:: python
 
     from pylinac import StandardImagingQC3
 
@@ -613,7 +715,7 @@ Calculate a specific MTF
 
 To calculate a specific MTF value, i.e. the frequency at a given MTF%:
 
-.. python::
+.. code-block:: python
 
     dl = DoselabMC2kV(...)
     dl.analyze(...)
@@ -622,7 +724,7 @@ To calculate a specific MTF value, i.e. the frequency at a given MTF%:
 Get/View the contrast of a low-contrast ROI
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. python::
+.. code-block:: python
 
     leeds = LeedsTOR(...)
     leeds.analyze(...)

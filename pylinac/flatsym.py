@@ -1,9 +1,11 @@
 """Module for analyzing images, either film or EPID, for flatness and symmetry."""
 import io
 import os.path as osp
-from typing import Tuple, Union
+from typing import Tuple, Union, Sequence, Optional
 
+import argue
 import matplotlib.pyplot as plt
+import numpy as np
 
 from pylinac.core.utilities import open_path
 from .core.exceptions import NotAnalyzed
@@ -14,7 +16,7 @@ from .core import pdf
 from .settings import get_dicom_cmap
 
 
-def flatness_varian(profile: SingleProfile):
+def flatness_varian(profile: SingleProfile) -> Sequence[float]:
     """The Varian specification for calculating flatness"""
     try:
         dmax = profile.field_calculation(field_width=0.8, calculation='max')
@@ -22,11 +24,11 @@ def flatness_varian(profile: SingleProfile):
     except ValueError:
         raise ValueError("An error was encountered in the flatness calculation. The image is likely inverted. Try inverting the image before analysis with <instance>.image.invert().")
     flatness = 100 * abs(dmax - dmin) / (dmax + dmin)
-    lt_edge, rt_edge = profile.field_edges()
+    lt_edge, rt_edge = profile.field_edges(interpolate=True)
     return flatness, dmax, dmin, lt_edge, rt_edge
 
 
-def flatness_elekta(profile: SingleProfile):
+def flatness_elekta(profile: SingleProfile) -> Sequence[float]:
     """The Elekta specification for calculating flatness"""
     try:
         dmax = profile.field_calculation(field_width=0.8, calculation='max')
@@ -38,27 +40,23 @@ def flatness_elekta(profile: SingleProfile):
     return flatness, dmax, dmin, lt_edge, rt_edge
 
 
-def symmetry_point_difference(profile: SingleProfile):
+def symmetry_point_difference(profile: SingleProfile) -> Tuple[float, Sequence[float], float, float]:
     """Calculation of symmetry by way of point difference equidistant from the CAX"""
     values = profile.field_values(field_width=0.8)
     lt_edge, rt_edge = profile.field_edges(field_width=0.8)
-    cax = profile.fwxm_center()
-    dcax = profile.values[cax]
-    max_val = 0
+    _, cax_val = profile.fwxm_center()
     sym_array = []
     for lt_pt, rt_pt in zip(values, values[::-1]):
-        val = 100 * abs(lt_pt - rt_pt) / dcax
+        val = 100 * abs(lt_pt - rt_pt) / cax_val
         sym_array.append(val)
-        if val > max_val:
-            max_val = val
-    symmetry = max_val
+    symmetry = max(sym_array)
     return symmetry, sym_array, lt_edge, rt_edge
 
 
-def symmetry_pdq_iec(profile: SingleProfile):
+def symmetry_pdq_iec(profile: SingleProfile) -> Tuple[float, Sequence[float], float, float]:
     """Symmetry calculation by way of PDQ IEC"""
     values = profile.field_values(field_width=0.8)
-    lt_edge, rt_edge = profile.field_edges(field_width=0.8)
+    lt_edge, rt_edge = profile.field_edges(field_width=0.8, interpolate=True)
     max_val = 0
     sym_array = []
     for lt_pt, rt_pt in zip(values, values[::-1]):
@@ -96,16 +94,23 @@ class FlatSym:
         Contains the method of calculation and the vertical and horizontal flatness data including the value.
     positions : dict
         The position ratio used for analysis for vertical and horizontal.
+    widths : dict
+        The width ratios used for analysis for vertical and horizontal.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, filter: Optional[int]=None):
         """
         Parameters
         ----------
         path : str
             The path to the image.
+        filter : None or int
+            If None, no filter is applied. If an int, a median filter of size n pixels is applied. Generally, a good idea.
+            Default is None for backwards compatibility.
         """
         self.image = image.load(path)
+        if filter:
+            self.image.filter(size=filter)
         self.symmetry: dict = {}
         self.flatness: dict = {}
         self.positions: dict = {}
@@ -124,9 +129,12 @@ class FlatSym:
         fs = FlatSym.from_demo_image()
         fs.analyze(flatness_method='varian', symmetry_method='varian')
         print(fs.results())
-        fs.plot()
+        fs.plot_analyzed_image()
 
-    def analyze(self, flatness_method: str, symmetry_method: str, vert_position: float=0.5, horiz_position: float=0.5, invert=False):
+    @argue.options(flatness_method=FLATNESS_EQUATIONS.keys(), symmetry_method=SYMMETRY_EQUATIONS.keys())
+    @argue.bounds(vert_position=(0, 1), horiz_position=(0, 1), vert_width=(0, 1), horiz_width=(0, 1))
+    def analyze(self, flatness_method: str, symmetry_method: str, vert_position: float=0.5, horiz_position: float=0.5,
+                vert_width: Union[float, int]=0, horiz_width: Union[float, int]=0, invert: bool=False):
         """Analyze the image to determine flatness & symmetry.
 
         Parameters
@@ -141,18 +149,23 @@ class FlatSym:
         horiz_position : float (0.0-1.0)
             The distance ratio of the image to sample. E.g. at the default of 0.5 the profile is extracted
             in the middle of the image. 0.0 is at the top edge of the image and 1.0 is at the bottom edge of the image.
+        vert_width : float (0.0-1.0)
+            The width ratio of the image to sample. E.g. at the default of 0.0 a 1 pixel wide profile is extracted.
+            0.0 would be 1 pixel wide and 1.0 would be the vertical image width.
+        horiz_width : float (0.0-1.0)
+            The width ratio of the image to sample. E.g. at the default of 0.0 a 1 pixel wide profile is extracted.
+            0.0 would be 1 pixel wide and 1.0 would be the horizontal image width.
         invert : bool
             Whether to invert the image. Setting this to True will override the default inversion. This is useful if
             pylinac's automatic inversion is incorrect.
         """
         if invert:
             self.image.invert()
-        self.symmetry = self._calc_symmetry(symmetry_method, vert_position, horiz_position)
-        self.flatness = self._calc_flatness(flatness_method, vert_position, horiz_position)
-        self.positions = {'vertical': vert_position, 'horizontal': horiz_position}
+        self.symmetry = self._calc_symmetry(symmetry_method, vert_position, horiz_position, vert_width, horiz_width)
+        self.flatness = self._calc_flatness(flatness_method, vert_position, horiz_position, vert_width, horiz_width)
         self._is_analyzed = True
 
-    def results(self, as_str=True) -> Union[str, list]:
+    def results(self, as_str: bool=True) -> Union[str, list]:
         """Get the results of the analysis.
 
         Parameters
@@ -168,14 +181,16 @@ class FlatSym:
         if not self._is_analyzed:
             raise NotAnalyzed("Image is not analyzed yet. Use analyze() first.")
         # do some calculations
-        horiz_penum = self.symmetry['horizontal']['profile'].penumbra_width() / self.image.dpmm
-        vert_penum = self.symmetry['vertical']['profile'].penumbra_width() / self.image.dpmm
+        horiz_penum = np.mean(self.symmetry['horizontal']['profile'].penumbra_width()) / self.image.dpmm
+        vert_penum = np.mean(self.symmetry['vertical']['profile'].penumbra_width()) / self.image.dpmm
         horiz_width = self.symmetry['horizontal']['profile'].fwxm() / self.image.dpmm
         vert_width = self.symmetry['vertical']['profile'].fwxm() / self.image.dpmm
-        upper_dist = abs(self.symmetry['vertical']['profile']._penumbra_point('left') - self.image.center.y) / self.image.dpmm
-        lower_dist = abs(self.symmetry['vertical']['profile']._penumbra_point('right') - self.image.center.y) / self.image.dpmm
-        left_dist = abs(self.symmetry['horizontal']['profile']._penumbra_point('left') - self.image.center.x) / self.image.dpmm
-        right_dist = abs(self.symmetry['horizontal']['profile']._penumbra_point('right') - self.image.center.x) / self.image.dpmm
+        up_edge_idx, bt_edge_idx = self.symmetry['vertical']['profile'].field_edges(field_width=1.0, interpolate=True)
+        upper_dist = abs(up_edge_idx - self.image.center.y) / self.image.dpmm
+        lower_dist = abs(bt_edge_idx - self.image.center.y) / self.image.dpmm
+        lt_edge_idx, rt_edge_idx = self.symmetry['horizontal']['profile'].field_edges(field_width=1.0, interpolate=True)
+        left_dist = abs(lt_edge_idx - self.image.center.x) / self.image.dpmm
+        right_dist = abs(rt_edge_idx - self.image.center.x) / self.image.dpmm
         results = [f'Flatness & Symmetry',
                    f'File: {self.image.truncated_path}',
                    "",
@@ -204,13 +219,32 @@ class FlatSym:
             results = '\n'.join(result for result in results)
         return results
 
-    def _calc_symmetry(self, method: str, vert_position: float, horiz_position: float):
-        vert_profile = SingleProfile(self.image.array[:, int(round(self.image.array.shape[1]*vert_position))])
-        horiz_profile = SingleProfile(self.image.array[int(round(self.image.array.shape[0]*horiz_position)), :])
+    def _get_vert_profile(self, vert_position: float, vert_width: float) -> SingleProfile:
+        left_edge = int(round(self.image.array.shape[1]*vert_position - self.image.array.shape[1]*vert_width/2))
+        left_edge = max(left_edge, 0)  # clip to 0
+        right_edge = int(round(self.image.array.shape[1]*vert_position + self.image.array.shape[1]*vert_width/2) + 1)
+        right_edge = min(right_edge, self.image.array.shape[1])  # clip to image limit
+        self.positions['vertical left'] = left_edge
+        self.positions['vertical right'] = right_edge
+        return SingleProfile(np.sum(self.image.array[:, left_edge:right_edge], 1))
+
+    def _get_horiz_profile(self, horiz_position: float, horiz_width: float) -> SingleProfile:
+        bottom_edge = int(round(self.image.array.shape[0] * horiz_position - self.image.array.shape[0] * horiz_width / 2))
+        bottom_edge = max(bottom_edge, 0)
+        top_edge = int(round(self.image.array.shape[0] * horiz_position + self.image.array.shape[0] * horiz_width / 2) + 1)
+        top_edge = min(top_edge, self.image.array.shape[0])
+        self.positions['horizontal bottom'] = bottom_edge
+        self.positions['horizontal top'] = top_edge
+        return SingleProfile(np.sum(self.image.array[bottom_edge:top_edge, :], 0))
+
+    def _calc_symmetry(self, method: str, vert_position: float, horiz_position: float, vert_width: float, horiz_width: float) -> dict:
+        vert_profile = self._get_vert_profile(vert_position, vert_width)
+        horiz_profile = self._get_horiz_profile(horiz_position, horiz_width)
+
         # calc sym from profile
         symmetry_calculation = SYMMETRY_EQUATIONS[method.lower()]
         vert_sym, vert_sym_array, vert_lt, vert_rt = symmetry_calculation(vert_profile)
-        horiz_sym , horiz_sym_array, horiz_lt, horiz_rt = symmetry_calculation(horiz_profile)
+        horiz_sym, horiz_sym_array, horiz_lt, horiz_rt = symmetry_calculation(horiz_profile)
         return {
             'method': method,
             'horizontal': {
@@ -221,9 +255,10 @@ class FlatSym:
                 },
         }
 
-    def _calc_flatness(self, method: str, vert_position: float, horiz_position: float):
-        vert_profile = SingleProfile(self.image.array[:, int(round(self.image.array.shape[1] * vert_position))])
-        horiz_profile = SingleProfile(self.image.array[int(round(self.image.array.shape[0] * horiz_position)), :])
+    def _calc_flatness(self, method: str, vert_position: float, horiz_position: float, vert_width: float, horiz_width: float) -> dict:
+        vert_profile = self._get_vert_profile(vert_position, vert_width)
+        horiz_profile = self._get_horiz_profile(horiz_position, horiz_width)
+
         # calc flatness from profile
         flatness_calculation = FLATNESS_EQUATIONS[method.lower()]
         vert_flatness, vert_max, vert_min, vert_lt, vert_rt = flatness_calculation(vert_profile)
@@ -285,7 +320,7 @@ class FlatSym:
         if open_file:
             open_path(filename)
 
-    def plot(self, show: bool=True):
+    def plot_analyzed_image(self, show: bool=True) -> None:
         """Plot the analyzed image. Shows both flatness & symmetry.
 
         Parameters
@@ -316,17 +351,25 @@ class FlatSym:
         if show:
             plt.show()
 
-    def _plot_image(self, axis: plt.Axes=None, title: str=''):
+    def _plot_image(self, axis: Optional[plt.Axes]=None, title: str=''):
         plt.ioff()
         if axis is None:
             fig, axis = plt.subplots()
         axis.imshow(self.image.array, cmap=get_dicom_cmap())
-        axis.axhline(self.positions['horizontal']*self.image.array.shape[0], color='r')  # y
-        axis.axvline(self.positions['vertical']*self.image.array.shape[1], color='r')  # x
+        # show vertical/axial profiles
+        left_profile = self.positions['vertical left']
+        right_profile = self.positions['vertical right']
+        axis.axvline(left_profile, color='b')
+        axis.axvline(right_profile, color='b')
+        # show horizontal/transverse profiles
+        bottom_profile = self.positions['horizontal bottom']
+        top_profile = self.positions['horizontal top']
+        axis.axhline(bottom_profile, color='b')
+        axis.axhline(top_profile, color='b')
         _remove_ticklabels(axis)
         axis.set_title(title)
 
-    def _plot_flatness(self, direction: str, axis: plt.Axes=None):
+    def _plot_flatness(self, direction: str, axis: Optional[plt.Axes]=None):
         plt.ioff()
         if axis is None:
             fig, axis = plt.subplots()
@@ -339,7 +382,7 @@ class FlatSym:
         axis.axvline(data['profile left'], color='g', linestyle='-.')
         axis.axvline(data['profile right'], color='g', linestyle='-.')
 
-    def _plot_symmetry(self, direction: str, axis: plt.Axes=None):
+    def _plot_symmetry(self, direction: str, axis: Optional[plt.Axes]=None):
         plt.ioff()
         if axis is None:
             fig, axis = plt.subplots()
@@ -347,14 +390,14 @@ class FlatSym:
         axis.set_title(direction.capitalize() + " Symmetry")
         axis.plot(data['profile'].values)
         # plot lines
-        cax_idx = data['profile'].fwxm_center()
+        cax_idx, _ = data['profile'].fwxm_center()
         axis.axvline(data['profile left'], color='g', linestyle='-.')
         axis.axvline(data['profile right'], color='g', linestyle='-.')
         axis.axvline(cax_idx, color='m', linestyle='-.')
         # plot symmetry array
         if not data['array'] == 0:
             twin_axis = axis.twinx()
-            twin_axis.plot(range(cax_idx, data['profile right']), data['array'][int(round(len(data['array'])/2)):])
+            twin_axis.plot(range(cax_idx, int(round(data['profile right']))), data['array'][int(round(len(data['array'])/2)):])
             twin_axis.set_ylabel("Symmetry (%)")
         _remove_ticklabels(axis)
         # plot profile mirror

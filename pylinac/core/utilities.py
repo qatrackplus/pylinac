@@ -10,7 +10,6 @@ from datetime import datetime
 
 import pydicom
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
 
 from .typing import NumberLike
 
@@ -72,65 +71,29 @@ def is_close(val: NumberLike, target: Union[NumberLike, Sequence], delta: Number
     return False
 
 
-def typed_property(name, expected_type_or_tuple_of_types):
-    """Type-enforced property. Python Cookbook 9.21 (3rd ed)."""
-    storage_name = '_' + name
-
-    @property
-    def prop(self):
-        return getattr(self, storage_name, None)
-
-    @prop.setter
-    def prop(self, value):
-        if not isinstance(value, expected_type_or_tuple_of_types):
-            raise TypeError(f"{name} must be a {expected_type_or_tuple_of_types}. Got: {type(value)}")
-        setattr(self, storage_name, value)
-
-    return prop
-
-
-def simple_round(number: NumberLike, decimals: int=0):
+def simple_round(number: NumberLike, decimals: int=0) -> float:
     """Round a number to the given number of decimals. Fixes small floating number errors."""
     num = int(round(number * 10 ** decimals))
     num /= 10 ** decimals
     return num
 
 
-def isnumeric(object):
+def isnumeric(object) -> bool:
     """Check whether the passed object is numeric in any sense."""
     return isinstance(object, (int, float, decimal.Decimal, np.number))
 
 
-def is_float_like(number):
+def is_float_like(number) -> bool:
     return isinstance(number, (float, np.float, np.float16, np.float32, np.float64))
 
 
-def is_int_like(number):
+def is_int_like(number) -> bool:
     return isinstance(number, (int, np.int, np.int16, np.int32, np.int64, np.int8))
 
 
-def is_iterable(object):
+def is_iterable(object) -> bool:
     """Determine if an object is iterable."""
     return isinstance(object, Iterable)
-
-
-def minmax_scale(array, feature_range=(0, 1), axis=0, copy=True):
-    """Copy of scikit-learn's minmax_scale function. Reproduced here for backwards compatibility."""
-    original_ndim = array.ndim
-
-    if original_ndim == 1:
-        array = array.reshape(array.shape[0], 1)
-
-    s = MinMaxScaler(feature_range=feature_range, copy=copy)
-    if axis == 0:
-        array = s.fit_transform(array)
-    else:
-        array = s.fit_transform(array.T).T
-
-    if original_ndim == 1:
-        array = array.ravel()
-
-    return array
 
 
 class Structure:
@@ -142,7 +105,7 @@ class Structure:
         self.__dict__.update(**kwargs)
 
 
-def decode_binary(file, dtype, num_values=1, cursor_shift=0):
+def decode_binary(file, dtype: Union[int, float, str], num_values: int=1, cursor_shift: int=0) -> Union[int, float, str]:
     """Read in a raw binary file and convert it to given data types.
 
     Parameters
@@ -187,7 +150,7 @@ def decode_binary(file, dtype, num_values=1, cursor_shift=0):
     return output
 
 
-def open_path(path: str):
+def open_path(path: str) -> None:
     """Open the specified path in the system default viewer."""
 
     if os.name == 'darwin':
@@ -199,7 +162,7 @@ def open_path(path: str):
     subprocess.call([launcher, path])
 
 
-def file_exists(filename: str):
+def file_exists(filename: str) -> str:
     """Check if the file exists and if it does add a timestamp"""
     if osp.exists(filename):
         filename, ext = osp.splitext(filename)

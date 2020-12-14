@@ -1,22 +1,22 @@
-import os.path as osp
 from unittest import TestCase
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 
 from pylinac import CatPhan503, CatPhan504, CatPhan600, CatPhan604
+from pylinac.ct import CTP404CP504, CTP404CP503, CTP515, CTP528CP503, CTP528CP504
 from pylinac.core.geometry import Point
 from tests_basic.utils import save_file, LoadingTestBase, LocationMixin
 
-TEST_DIR = osp.join(osp.dirname(__file__), 'test_files', 'CBCT')
-plt.close('all')
+TEST_DIR = Path('./test_files/CBCT')
 
 
 class CBCTLoading(LoadingTestBase, TestCase):
     klass = CatPhan504
-    constructor_input = osp.join(TEST_DIR, 'Pelvis')
+    constructor_input = Path(TEST_DIR, 'Pelvis')
     demo_load_method = 'from_demo_images'
     url = 'CatPhan504.zip'
-    zip = osp.join(TEST_DIR, 'CBCT_4.zip')
+    zip = Path(TEST_DIR, 'CBCT_4.zip')
 
 
 class GeneralTests(TestCase):
@@ -40,6 +40,54 @@ class GeneralTests(TestCase):
         self.cbct.analyze()
         self.assertAlmostEqual(self.cbct.ctp404.phan_center.x, known_phan_center.x, delta=0.7)
         self.assertAlmostEqual(self.cbct.ctp404.phan_center.y, known_phan_center.y, delta=0.7)
+
+
+class CustomPhantom(TestCase):
+
+    def test_removing_module(self):
+        class CatPhan504Modified(CatPhan504):
+            modules = {
+                CTP404CP504: {'offset': 0},
+            }
+        ct = CatPhan504Modified.from_demo_images()  # shouldn't raise
+        ct.analyze()
+
+    def test_omitting_404_module(self):
+        class CatPhan504Modified(CatPhan504):
+            modules = {
+                CTP528CP504: {'offset': -30},
+            }
+        ct = CatPhan504Modified.from_demo_images()  # shouldn't raise
+        with self.assertRaises(ValueError):
+            ct.analyze()
+
+    def test_modifying_module(self):
+        class CTP528Custom(CTP528CP503):
+            start_angle = 0.1
+
+        class CatPhan503Modified(CatPhan503):
+            modules = {
+                CTP404CP503: {'offset': 0},
+                CTP528Custom: {'offset': -30},
+            }
+        ct = CatPhan503Modified.from_demo_images()  # shouldn't raise
+        ct.analyze()
+        ct.plot_analyzed_image()
+
+
+class DemoTests(TestCase):
+
+    def test_504(self):
+        CatPhan504.run_demo()
+
+    def test_503(self):
+        CatPhan503.run_demo()
+
+    def test_600(self):
+        CatPhan600.run_demo()
+
+    def test_604(self):
+        CatPhan604.run_demo()
 
 
 class PlottingSaving(TestCase):
@@ -126,7 +174,7 @@ class CatPhanMixin(LocationMixin):
 
     def test_HU_values(self):
         """Test HU values."""
-        for key, roi in self.cbct.ctp404.hu_rois.items():
+        for key, roi in self.cbct.ctp404.rois.items():
             exp_val = self.hu_values[key]
             meas_val = roi.pixel_value
             self.assertAlmostEqual(exp_val, meas_val, delta=5)
@@ -174,7 +222,7 @@ class CatPhan4(CatPhanMixin, TestCase):
     expected_roll = -2.57
     origin_slice = 31
     hu_values = {'Poly': -33, 'Acrylic': 119, 'Delrin': 335, 'Air': -979, 'Teflon': 970, 'PMP': -185, 'LDPE': -94}
-    unif_values = {'Center': 17, 'Left': 10, 'Right': 22, 'Top': 18, 'Bottom': 13}
+    unif_values = {'Center': 17, 'Left': 10, 'Right': 22, 'Top': 13, 'Bottom': 18}
     mtf_values = {80: 0.24, 90: 0.2, 60: 0.31, 70: 0.23, 95: 0.15}
     lowcon_visible = 1
     slice_thickness = 2.4

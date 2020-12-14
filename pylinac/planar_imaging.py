@@ -17,10 +17,12 @@ import copy
 import warnings
 from functools import lru_cache
 import io
+from typing import Optional, List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage import feature, measure
+from skimage.measure._regionprops import RegionProperties
 
 from .core.mtf import MTF
 from .core.utilities import open_path
@@ -61,8 +63,8 @@ class ImagePhantomBase:
     low_contrast_background_value : float
         The average pixel value of all the low-contrast background ROIs.
     """
-    _demo_filename = ''
-    common_name = ''
+    _demo_filename: str
+    common_name: str
     high_contrast_roi_settings = {}
     high_contrast_rois = []
     low_contrast_roi_settings = {}
@@ -97,7 +99,7 @@ class ImagePhantomBase:
         return cls(demo_file)
 
     @classmethod
-    def from_url(cls, url):
+    def from_url(cls, url: str):
         """
         Parameters
         ----------
@@ -113,8 +115,8 @@ class ImagePhantomBase:
     def _check_inversion(self):
         pass
 
-    def analyze(self, low_contrast_threshold=0.05, high_contrast_threshold=0.5, invert=False, angle_override=None,
-                center_override=None, size_override=None) -> None:
+    def analyze(self, low_contrast_threshold: float=0.05, high_contrast_threshold: float=0.5, invert: bool=False, angle_override: Optional[float]=None,
+                center_override: Optional[tuple]=None, size_override: Optional[float]=None) -> None:
         """Analyze the phantom using the provided thresholds and settings.
 
         Parameters
@@ -165,7 +167,7 @@ class ImagePhantomBase:
         if self.low_contrast_roi_settings:
             self.low_contrast_rois = self._sample_low_contrast_rois()
 
-    def _sample_low_contrast_rois(self):
+    def _sample_low_contrast_rois(self) -> List[LowContrastDiskROI]:
         """Sample the low-contrast sample regions for calculating contrast values."""
         lc_rois = []
         for stng in self.low_contrast_roi_settings.values():
@@ -179,7 +181,7 @@ class ImagePhantomBase:
             lc_rois.append(roi)
         return lc_rois
 
-    def _sample_low_contrast_background_rois(self):
+    def _sample_low_contrast_background_rois(self) -> Tuple[List[LowContrastDiskROI], float]:
         """Sample the low-contrast background regions for calculating contrast values."""
         bg_rois = []
         for stng in self.low_contrast_background_roi_settings.values():
@@ -193,7 +195,7 @@ class ImagePhantomBase:
         avg_bg = np.mean([roi.pixel_value for roi in bg_rois])
         return bg_rois, avg_bg
 
-    def _sample_high_contrast_rois(self):
+    def _sample_high_contrast_rois(self) -> List[HighContrastDiskROI]:
         """Sample the high-contrast line pair regions."""
         hc_rois = []
         for stng in self.high_contrast_roi_settings.values():
@@ -235,7 +237,7 @@ class ImagePhantomBase:
         regions = measure.regionprops(labeled, intensity_image=img_copy)
         return regions
 
-    def _create_phantom_outline_object(self):
+    def _create_phantom_outline_object(self) -> Tuple[Union[Rectangle, Circle], dict]:
         """Construct the phantom outline object which will be plotted on the image for visual inspection."""
         outline_type = list(self.phantom_outline_object)[0]
         outline_settings = list(self.phantom_outline_object.values())[0]
@@ -258,7 +260,7 @@ class ImagePhantomBase:
             raise ValueError("An outline object was passed but was not a Circle or Rectangle.")
         return obj, settings
 
-    def plot_analyzed_image(self, image=True, low_contrast=True, high_contrast=True, show=True):
+    def plot_analyzed_image(self, image: bool=True, low_contrast: bool=True, high_contrast: bool=True, show: bool=True):
         """Plot the analyzed image.
 
         Parameters
@@ -322,7 +324,7 @@ class ImagePhantomBase:
         if show:
             plt.show()
 
-    def _plot_lowcontrast_graph(self, axes):
+    def _plot_lowcontrast_graph(self, axes: plt.Axes):
         """Plot the low contrast ROIs to an axes."""
         line1, = axes.plot([roi.contrast for roi in self.low_contrast_rois], marker='o', color='m', label='Contrast')
         axes.axhline(self._low_contrast_threshold, color='m')
@@ -335,7 +337,7 @@ class ImagePhantomBase:
         axes2.set_ylabel('CNR')
         axes.legend(handles=[line1, line2])
 
-    def _plot_highcontrast_graph(self, axes):
+    def _plot_highcontrast_graph(self, axes: plt.Axes):
         """Plot the high contrast ROIs to an axes."""
         axes.plot(self.mtf.spacings, list(self.mtf.norm_mtfs.values()), marker='*')
         axes.axhline(self._high_contrast_threshold, color='k')
@@ -362,7 +364,7 @@ class ImagePhantomBase:
             ]
         return text
 
-    def publish_pdf(self, filename: str, notes=None, open_file=False, metadata=None):
+    def publish_pdf(self, filename: str, notes: str=None, open_file: bool=False, metadata: Optional[dict]=None):
         """Publish (print) a PDF containing the analysis, images, and quantitative results.
 
         Parameters
@@ -413,15 +415,15 @@ class ImagePhantomBase:
             open_path(filename)
 
     @property
-    def phantom_center(self):
+    def phantom_center(self) -> Point:
         return Point(self._center_override) if self._center_override is not None else self._phantom_center_calc()
 
     @property
-    def phantom_radius(self):
+    def phantom_radius(self) -> float:
         return self._size_override if self._size_override is not None else self._phantom_radius_calc()
 
     @property
-    def phantom_angle(self):
+    def phantom_angle(self) -> float:
         return self._angle_override if self._angle_override is not None else self._phantom_angle_calc()
 
     def _phantom_center_calc(self):
@@ -499,8 +501,8 @@ class LasVegas(ImagePhantomBase):
         roll_amount = np.where(circle.values == circle.values.min())[0][0]
         circle.roll(roll_amount)
         circle.filter(size=0.015, kind='median')
-        valleys = circle.find_peaks(max_number=2, kind='value')
-        if valleys[0] > valleys[1]:
+        valley_idxs, _ = circle.find_peaks(max_number=2)
+        if valley_idxs[0] > valley_idxs[1]:
             self.image.array = np.fliplr(self.image.array)
             self._phantom_ski_region = None
 
@@ -513,7 +515,7 @@ class LasVegas(ImagePhantomBase):
     def _phantom_angle_calc(self) -> float:
         return 0.0
 
-    def _phantom_ski_region_calc(self):
+    def _phantom_ski_region_calc(self) -> RegionProperties:
         """The skimage region of the phantom outline."""
         if self._phantom_ski_region is not None:
             return self._phantom_ski_region
@@ -577,7 +579,7 @@ class StandardImagingQC3(ImagePhantomBase):
 
     @property
     @lru_cache(1)
-    def phantom_ski_region(self):
+    def phantom_ski_region(self) -> RegionProperties:
         """The skimage region of the phantom outline."""
         regions = self._get_canny_regions()
         blobs = []
@@ -682,7 +684,7 @@ class LeedsTOR(ImagePhantomBase):
 
     @property
     @lru_cache(1)
-    def _blobs(self):
+    def _blobs(self) -> list:
         """The indices of the regions that were significant; i.e. a phantom circle outline or lead/copper square."""
         blobs = []
         for idx, region in enumerate(self._regions):
@@ -697,7 +699,7 @@ class LeedsTOR(ImagePhantomBase):
 
     @property
     @lru_cache(1)
-    def _regions(self):
+    def _regions(self) -> List[RegionProperties]:
         """All the regions of the canny image that were labeled."""
         return self._get_canny_regions()
 
@@ -741,9 +743,9 @@ class LeedsTOR(ImagePhantomBase):
 
         start_angle_deg = self._determine_start_angle_for_circle_profile()
         circle = self._circle_profile_for_phantom_angle(start_angle_deg)
-        peak_idx = circle.find_fwxm_peaks(threshold=0.6, max_number=1)[0]
+        peak_idx, _ = circle.find_fwxm_peaks(threshold=0.6, max_number=1)
 
-        shift_percent = peak_idx / len(circle.values)
+        shift_percent = peak_idx[0] / len(circle.values)
         shift_radians = shift_percent * 2 * np.pi
         shift_radians_corrected = 2*np.pi - shift_radians
 
@@ -890,7 +892,7 @@ class DoselabMC2kV(ImagePhantomBase):
 
     @property
     @lru_cache(1)
-    def phantom_ski_region(self):
+    def phantom_ski_region(self) -> RegionProperties:
         """The skimage region of the phantom outline."""
         regions = self._get_canny_regions(percentiles=(0.01, 0.1))
         blobs = []
