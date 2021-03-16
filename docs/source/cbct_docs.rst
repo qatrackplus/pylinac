@@ -14,63 +14,61 @@ Running the Demo
 
 To run one of the CatPhan demos, create a script or start an interpreter and input:
 
-.. code-block:: python
-
-    from pylinac import CatPhan504
-    CatPhan504.run_demo() # the demo is a Varian high quality head scan
-
-Results will be printed to the console and a figure showing the slices analyzed will pop up::
-
-     - CatPhan 504 QA Test -
-    HU Linearity ROIs: {'Poly': -45.0, 'PMP': -200.0, 'Acrylic': 115.0, 'Teflon': 997.0, 'Delrin': 340.0, 'Air': -998.0, 'LDPE': -102.0}
-    HU Passed?: True
-    Uniformity ROIs: {'Center': 14.0, 'Top': 6.0, 'Left': 10.0, 'Bottom': 5.0, 'Right': 0.0}
-    Uniformity index: -1.3806706114398422
-    Integral non-uniformity: 0.006951340615690168
-    Uniformity Passed?: True
-    MTF 50% (lp/mm): 0.95
-    Low contrast ROIs "seen": 3
-    Low contrast visibility: 3.4654015681608437
-    Geometric Line Average (mm): 49.93054775087732
-    Geometry Passed?: True
-    Slice Thickness (mm): 2.5007568359375
-    Slice Thickness Passed? True
-
 .. plot::
 
     from pylinac import CatPhan504
-    cbct = CatPhan504.from_demo_images()
-    cbct.analyze()
-    cbct.plot_analyzed_image()
+    cbct = CatPhan504.run_demo()  # the demo is a Varian high quality head scan
 
-As well, you can plot and save individual pieces of the analysis:
+Results will be also be printed to the console::
 
-.. code-block:: python
+    - CatPhan 504 QA Test -
+    HU Linearity ROIs: Air: -998.0, PMP: -200.0, LDPE: -102.0, Poly: -45.0, Acrylic: 115.0, Delrin: 340.0, Teflon: 997.0
+    HU Passed?: True
+    Low contrast visibility: 3.46
+    Geometric Line Average (mm): 49.95
+    Geometry Passed?: True
+    Measured Slice Thickness (mm): 2.499
+    Slice Thickness Passed? True
+    Uniformity ROIs: Top: 6.0, Right: -1.0, Bottom: 5.0, Left: 10.0, Center: 14.0
+    Uniformity index: -1.479
+    Integral non-uniformity: 0.0075
+    Uniformity Passed?: True
+    MTF 50% (lp/mm): 0.56
+    Low contrast ROIs "seen": 3
+
+
+As well, you can plot and save individual pieces of the analysis such as linearity:
+
+.. plot::
+    :include-source: false
+
+    from pylinac import CatPhan504
 
     cbct = CatPhan504.from_demo_images()
     cbct.analyze()
     cbct.plot_analyzed_subimage('linearity')
     cbct.save_analyzed_subimage('linearity.png', subimage='linearity')
 
-.. raw:: html
-    :file: images/cbct_hu_lin.html
-
-Or:
+Or the rMTF:
 
 .. code-block:: python
 
     cbct.plot_analyzed_subimage('rmtf')
 
-.. raw:: html
-    :file: images/cbct_rmtf.html
+.. plot::
+    :include-source: false
+
+    from pylinac import CatPhan504
+
+    cbct = CatPhan504.from_demo_images()
+    cbct.analyze()
+    cbct.plot_analyzed_subimage('rmtf')
 
 Or generate a PDF report:
 
 .. code-block:: python
 
     cbct.publish_pdf('mycbct.pdf')
-
-
 
 Typical Use
 -----------
@@ -129,26 +127,121 @@ The minimum needed to get going is to:
       # generate PDF
       mycbct.publish_pdf('mycatphan.pdf', open_file=True)  # open the PDF after saving as well.
 
+Advanced Use
+------------
+
+Partial scans
+^^^^^^^^^^^^^
+
+While the default behavior of pylinac is to analyze all modules in the scan (in fact it will error out if they aren't),
+the behavior can be customized. Pylinac **always** has to be aware of the CTP404 module as that's the reference slice
+for everything else. Thus, if the 404 is not in the scan you're SOL. However, if one of the other modules is not present
+you can remove or adjust its offset by subclassing and overloading the ``modules`` attr:
+
+.. code-block:: python
+
+    from pylinac import CatPhan504  # works for any of the other phantoms too
+    from pylinac.ct import CTP515, CTP486
+
+    class PartialCatPhan504(CatPhan504):
+        modules = {
+            CTP486: {'offset': -65},
+            CTP515: {'offset': -30},
+            # the CTP528 was omitted
+        }
+
+    ct = PartialCatPhan504.from_zip(...)  # use like normal
+
+Examining rMTF
+^^^^^^^^^^^^^^
+
+The rMTF can be calculated ad hoc like so. Note that CTP528 must be present (see above):
+
+.. code-block:: python
+
+    ct = ... # load a dataset like normal
+    ct.analyze()
+    ct.ctp528.mtf.relative_resolution(x=40)  # get the rMTF (lp/mm) at 40% resolution
+
+Customizing module locations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Similar to partial scans, to modify the module location(s), overload the ``modules`` attr and edit the ``offset`` value.
+The value is in mm:
+
+.. code-block:: python
+
+    from pylinac import CatPhan504  # works for any of the other phantoms too
+    from pylinac.ct import CTP515, CTP486, CTP528
+
+    # create custom catphan with module locations
+    class OffsetCatPhan504(CatPhan504):
+        modules = {
+            CTP486: {'offset': -60},  # normally -65
+            CTP528: {'offset': 30},
+            CTP515: {'offset': -25},  # normally -30
+        }
+
+    ct = OffsetCatPhan504.from_zip(...)  # use like normal
+
+Customizing Modules
+^^^^^^^^^^^^^^^^^^^
+
+You can also customize modules themselves in v2.4+. Customization should always be done by subclassing an existing
+module and overloading the attributes. Then, pass in the new custom module into the parent CatPhan class. The easiest
+way to get started is copy the relevant attributes from the existing code.
+
+As an example, let's override the nominal HU values for CTP404.
+
+.. code-block:: python
+
+    from pylinac.ct import CatPhan504, CTP404CP504
+
+    # first, customize the module
+    class CustomCTP404(CTP404CP504):
+        roi_dist_mm = 58.7  # this is the default value; we repeat here because it's easy to copy from source
+        roi_radius_mm = 5  # ditto
+        roi_settings = {
+            'Air': {'value': -1000, 'angle': -93, 'distance': roi_dist_mm, 'radius': roi_radius_mm},  # changed 'angle' from -90
+            'PMP': {'value': -196, 'angle': -120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+            ...  # add other ROIs as appropriate
+        }
+
+    # then, pass to the CatPhan model
+    class CustomCP504(CatPhan504):
+        modules = {
+            CustomCTP404: {'offset': 0}
+            ...  # add other modules here as appropriate
+        }
+
+    # use like normal
+    ct = CustomCP504(...)
+
+.. warning:: If you overload the ``roi_settings`` or ``modules`` attributes, you are responsible for filling it out completely.
+             I.e. when you overload it's not partial. In the above example if you want other CTP modules you **must** populate them.
+
 Algorithm
 ---------
 
 The CatPhan module is based on the tests and values given in the respective CatPhan manual. The algorithm works like such:
 
-**Allowances**
+Allowances
+^^^^^^^^^^
 
 * The images can be any size.
 * The phantom can have significant translation in all 3 directions.
 * The phantom can have significant roll and moderate yaw and pitch.
 
-**Restrictions**
+Restrictions
+^^^^^^^^^^^^
 
     .. warning:: Analysis can fail or give unreliable results if any Restriction is violated.
 
-* The phantom used must be an unmodified CatPhan 504, 503, or 600.
-* All of the relevant modules must be within the scan extent; i.e. one can't scan only part of the phantom.
+* All of the modules defined in the ``modules`` attribute must be within the scan extent.
 
 
-**Pre-Analysis**
+Pre-Analysis
+^^^^^^^^^^^^
 
 * **Determine image properties** -- Upon load, the image set is analyzed for its DICOM properties to determine mm/pixel
   spacing, rescale intercept and slope, manufacturer, etc.
@@ -163,7 +256,8 @@ The CatPhan module is based on the tests and values given in the respective CatP
       values then it is very likely the HU linearity module. All such slices are found and the median slice is set as the
       HU linearity module location. All other modules are located relative to this position.
 
-**Analysis**
+Analysis
+^^^^^^^^
 
 * **Determine phantom roll** -- Precise knowledge of the ROIs to analyze is important, and small changes in rotation
   could invalidate automatic results. The roll of the phantom is determined by examining the HU module and converting to
@@ -179,7 +273,11 @@ The CatPhan module is based on the tests and values given in the respective CatP
 
 * **Determine HU linearity** -- The HU module (CTP404) contains several materials with different HU values. Using
   hardcoded angles (corrected for roll) and radius from the center of the phantom, circular ROIs are sampled which
-  correspond to the HU material regions. The mean pixel value of the ROI is the stated HU value.
+  correspond to the HU material regions. The mean pixel value of the ROI is the stated HU value. Nominal HU values
+  are taken as the mean of the range given in the manual(s):
+
+  .. image:: images/catphan_densities.png
+
 * **Determine HU uniformity** -- HU uniformity (CTP486) is calculated in a similar manner to HU linearity, but
   within the CTP486 module/slice.
 * **Calculate Geometry/Scaling** -- The HU module (CTP404), besides HU materials, also contains several "nodes" which
@@ -205,7 +303,8 @@ The CatPhan module is based on the tests and values given in the respective CatP
   two longest profiles are averaged and the value is converted from pixels to mm and multiplied by 0.42.
 
 
-**Post-Analysis**
+Post-Analysis
+^^^^^^^^^^^^^
 
 * **Test if values are within tolerance** -- For each module, the determined values are compared with the nominal values.
   If the difference between the two is below the specified tolerance then the module passes.
@@ -229,6 +328,9 @@ Most problems in this module revolve around getting the data loaded.
 API Documentation
 -----------------
 
+CatPhan classes
+^^^^^^^^^^^^^^^
+
 The CatPhan classes uses several other classes. There are several Slices of Interest (SOI), most of which contain Regions of Interest (ROI).
 
 .. autoclass:: pylinac.ct.CatPhan504
@@ -248,9 +350,21 @@ Module classes (CTP404, etc)
 
 .. autoclass:: pylinac.ct.CatPhanModule
 
-.. autoclass:: pylinac.ct.CTP404
+.. autoclass:: pylinac.ct.CTP404CP503
 
-.. autoclass:: pylinac.ct.CTP528
+.. autoclass:: pylinac.ct.CTP404CP504
+
+.. autoclass:: pylinac.ct.CTP404CP600
+
+.. autoclass:: pylinac.ct.CTP404CP604
+
+.. autoclass:: pylinac.ct.CTP528CP503
+
+.. autoclass:: pylinac.ct.CTP528CP504
+
+.. autoclass:: pylinac.ct.CTP528CP600
+
+.. autoclass:: pylinac.ct.CTP528CP604
 
 .. autoclass:: pylinac.ct.CTP515
 
@@ -260,11 +374,7 @@ Module classes (CTP404, etc)
 ROI Objects
 ^^^^^^^^^^^
 
-.. autoclass:: pylinac.ct.ROIManagerMixin
-
 .. autoclass:: pylinac.ct.HUDiskROI
-
-.. autoclass:: pylinac.ct.RectangleROI
 
 .. autoclass:: pylinac.ct.ThicknessROI
 
@@ -274,3 +384,5 @@ Helper Functions
 ^^^^^^^^^^^^^^^^
 
 .. autofunction:: combine_surrounding_slices
+
+.. autofunction:: get_regions

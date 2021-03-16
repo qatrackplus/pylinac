@@ -10,39 +10,54 @@ Features:
 * **Any scan protocol** - Scan your CatPhan with any protocol; even scan it in a regular CT scanner.
   Any field size or field extent is allowed.
 """
-import io
-import os
-import webbrowser
-import zipfile
-from abc import abstractmethod
 from collections import OrderedDict
 from datetime import datetime
 from functools import lru_cache
+import io
 from os import path as osp
-from typing import Optional
+import os
+import webbrowser
+import zipfile
+from typing import Optional, Union, Dict, Tuple, Sequence
 
+import argue
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import ndimage
 from skimage import filters, measure, segmentation
 
-from .core import image, pdf
-from .core.decorators import value_accept
-from .core.geometry import Line, Point
-from .core.io import TemporaryZipDirectory, get_url, retrieve_demo_file
+from .core import image
+from .core.image import DicomImageStack
+from .core.io import TemporaryZipDirectory
+from .core.geometry import Point, Line
+from .core.io import get_url, retrieve_demo_file
+from .core import pdf
 from .core.mtf import MTF
 from .core.profile import CollapsedCircleProfile, SingleProfile
-from .core.roi import DiskROI, LowContrastDiskROI, RectangleROI
-from .core.utilities import simple_round
+from .core.roi import DiskROI, RectangleROI, LowContrastDiskROI
+from .core.typing import NumberLike
 from .settings import get_dicom_cmap
+
+
+AIR = -1000
+PMP = -196
+LDPE = -104
+POLY = -47
+ACRYLIC = 115
+DELRIN = 365
+TEFLON = 1000
+BONE_20 = 237
+BONE_50 = 725
 
 
 class HUDiskROI(DiskROI):
     """An HU ROI object. Represents a circular area measuring either HU sample (Air, Poly, ...)
     or HU uniformity (bottom, left, ...).
     """
-    def __init__(self, array, angle, roi_radius, dist_from_center, phantom_center, nominal_value=None, tolerance=None,
-                 background_median=None, background_std=None):
+    def __init__(self, array: np.ndarray, angle: float, roi_radius: float, dist_from_center: float,
+                 phantom_center: Union[tuple, Point], nominal_value: Optional[int] = None,
+                 tolerance: Optional[int] = None,
+                 background_median: Optional[float]=None, background_std: Optional[float]=None):
         """
         Parameters
         ----------
@@ -58,22 +73,22 @@ class HUDiskROI(DiskROI):
         self.background_std = background_std
 
     @property
-    def cnr(self):
+    def cnr(self) -> float:
         """The contrast-to-noise value of the HU disk"""
         return 2*abs(self.pixel_value - self.background_median) / (self.std + self.background_std)
 
     @property
-    def value_diff(self):
+    def value_diff(self) -> float:
         """The difference in HU between measured and nominal."""
-        return abs(self.pixel_value - self.nominal_val)
+        return self.pixel_value - self.nominal_val
 
     @property
-    def passed(self):
+    def passed(self) -> bool:
         """Boolean specifying if ROI pixel value was within tolerance of the nominal value."""
-        return self.value_diff <= self.tolerance
+        return abs(self.value_diff) <= self.tolerance
 
     @property
-    def plot_color(self):
+    def plot_color(self) -> str:
         """Return one of two colors depending on if ROI passed."""
         return 'green' if self.passed else 'red'
 
@@ -83,7 +98,7 @@ class ThicknessROI(RectangleROI):
 
     @property
     @lru_cache(maxsize=1)
-    def long_profile(self):
+    def long_profile(self) -> SingleProfile:
         """The profile along the axis perpendicular to ramped wire."""
         img = image.load(self.pixel_array)
         img.filter(size=1, kind='gaussian')
@@ -92,66 +107,21 @@ class ThicknessROI(RectangleROI):
 
     @property
     @lru_cache(maxsize=1)
-    def wire_fwhm(self):
+    def wire_fwhm(self) -> float:
         """The FWHM of the wire in pixels."""
-        return self.long_profile.fwxm(x=50, interpolate=True)
+        return self.long_profile.fwxm(x=50)
 
     @property
-    def plot_color(self):
+    def plot_color(self) -> str:
         """The plot color."""
         return 'blue'
 
 
-class ROIManagerMixin:
-    """Class for handling multiple ROIs. Used for the HU linearity, Uniformity, Geometry, Low-contrast, and Thickness slices.
-
-    Attributes
-    ----------
-    dist2rois_mm : int, float
-        The distance from the phantom center to the ROIs, in mm.
-    roi_radius_mm : int, float
-        The radius of the ROIs, in mm.
-    roi_names : list
-        The names of the ROIs.
-    roi_nominal_angles : list
-        The nominal angles of the ROIs; must be same order as ``roi_names``.
-    """
-    dist2rois_mm = 0
-    roi_radius_mm = 0
-    roi_names = []
-    roi_nominal_angles = []
-
-    @property
-    def roi_angles(self):
-        """The ROI angles, corrected for phantom roll."""
-        return np.array(self.roi_nominal_angles) + self.catphan_roll
-
-    @property
-    def dist2rois(self):
-        """Distance from the phantom center to the ROIs, corrected for pixel spacing."""
-        return self.dist2rois_mm / self.mm_per_pixel
-
-    @property
-    def roi_radius(self):
-        """ROI radius, corrected for pixel spacing."""
-        return self.roi_radius_mm / self.mm_per_pixel
-
-    def get_ROI_vals(self):
-        """Return a dict of the HU values of the HU ROIs."""
-        return {key: val.pixel_value for key, val in self.rois.items()}
-
-    def plot_rois(self, axis, threshold=None):
-        """Plot the ROIs to the axis."""
-        for roi in self.rois.values():
-            if not threshold:
-                roi.plot2axes(axis, edgecolor=roi.plot_color)
-            else:
-                roi.plot2axes(axis, edgecolor=roi.plot_color_cnr)
-
-
 class Slice:
     """Base class for analyzing specific slices of a CBCT dicom set."""
-    def __init__(self, catphan, slice_num=None, combine=True, combine_method='mean', num_slices=0):
+
+    @argue.options(combine_method=('mean', 'max'))
+    def __init__(self, catphan, slice_num: Optional[int]=None, combine: bool=True, combine_method: str='mean', num_slices: int=0):
         """
         Parameters
         ----------
@@ -182,7 +152,7 @@ class Slice:
 
     @property
     @lru_cache(maxsize=1)
-    def phan_center(self):
+    def phan_center(self) -> Point:
         """Determine the location of the center of the phantom.
 
         The image is analyzed to see if:
@@ -210,13 +180,19 @@ class Slice:
         return Point(center_pixel[1], center_pixel[0])
 
 
-class CatPhanModule(Slice, ROIManagerMixin):
+class CatPhanModule(Slice):
     """Base class for a CTP module.
     """
-    combine_method = 'mean'
-    num_slices = 0
+    combine_method: str = 'mean'
+    num_slices: int = 0
+    roi_settings: dict = {}
+    background_roi_settings: dict = {}
+    roi_dist_mm = float
+    roi_radius_mm = float
+    rois: dict = {}  # dicts of HUDiskROIs
+    background_rois: dict = {}  # dict of HUDiskROIs; possibly empty
 
-    def __init__(self, catphan, tolerance, offset=0):
+    def __init__(self, catphan, tolerance: float, offset: int=0):
         """
         Parameters
         ----------
@@ -231,9 +207,22 @@ class CatPhanModule(Slice, ROIManagerMixin):
         self.slice_thickness = catphan.dicom_stack.metadata.SliceThickness
         self.catphan_roll = catphan.catphan_roll
         self.mm_per_pixel = catphan.mm_per_pixel
+        self.rois = {}  # dicts of HUDiskROIs
+        self.background_rois = {}  # dict of HUDiskROIs; possibly empty
         Slice.__init__(self, catphan, combine_method=self.combine_method, num_slices=self.num_slices)
+        self._convert_units_in_settings()
         self.preprocess(catphan)
         self._setup_rois()
+
+    def _convert_units_in_settings(self) -> None:
+        for roi, settings in self.roi_settings.items():
+            self.roi_settings[roi]['distance_pixels'] = settings['distance'] / self.mm_per_pixel
+            self.roi_settings[roi]['angle_corrected'] = settings['angle'] + self.catphan_roll
+            self.roi_settings[roi]['radius_pixels'] = settings['radius'] / self.mm_per_pixel
+        for roi, settings in self.background_roi_settings.items():
+            self.background_roi_settings[roi]['distance_pixels'] = settings['distance'] / self.mm_per_pixel
+            self.background_roi_settings[roi]['angle_corrected'] = settings['angle'] + self.catphan_roll
+            self.background_roi_settings[roi]['radius_pixels'] = settings['radius'] / self.mm_per_pixel
 
     def preprocess(self, catphan):
         """A preprocessing step before analyzing the CTP module.
@@ -245,7 +234,7 @@ class CatPhanModule(Slice, ROIManagerMixin):
         pass
 
     @property
-    def slice_num(self):
+    def slice_num(self) -> int:
         """The slice number of the spatial resolution module.
 
         Returns
@@ -254,23 +243,82 @@ class CatPhanModule(Slice, ROIManagerMixin):
         """
         return int(self.origin_slice+round(self._offset/self.slice_thickness))
 
-    @abstractmethod
-    def _setup_rois(self):
-        pass
+    def _setup_rois(self) -> None:
+        for name, setting in self.background_roi_settings.items():
+            self.background_rois[name] = HUDiskROI(self.image, setting['angle_corrected'], setting['radius_pixels'], setting['distance_pixels'],
+                                        self.phan_center)
+        background_median = np.mean([roi.pixel_value for roi in self.background_rois.values()])
+        background_std = np.std([roi.pixel_value for roi in self.background_rois.values()])
+
+        for name, setting in self.roi_settings.items():
+            nominal_value = setting.get('value', 0)
+            self.rois[name] = HUDiskROI(self.image, setting['angle_corrected'], setting['radius_pixels'], setting['distance_pixels'],
+                                        self.phan_center, nominal_value, self.tolerance,
+                                        background_median=background_median, background_std=background_std)
+
+    # TODO: better define threshold
+    def plot_rois(self, axis: plt.Axes, threshold=None) -> None:
+        """Plot the ROIs to the axis."""
+        for roi in self.rois.values():
+            if not threshold:
+                roi.plot2axes(axis, edgecolor=roi.plot_color)
+            else:
+                roi.plot2axes(axis, edgecolor=roi.plot_color_cnr)
+        for roi in self.background_rois.values():
+            roi.plot2axes(axis, edgecolor='blue')
+
+    @property
+    def roi_vals_as_str(self) -> str:
+        return ', '.join(f'{name}: {roi.pixel_value}' for name, roi in self.rois.items())
 
 
-class CTP404(CatPhanModule):
+class CTP404CP504(CatPhanModule):
     """Class for analysis of the HU linearity, geometry, and slice thickness regions of the CTP404.
     """
     attr_name = 'ctp404'
     common_name = 'HU Linearity'
+    roi_dist_mm = 58.7
+    roi_radius_mm = 5
+    roi_settings = {
+        'Air': {'value': AIR, 'angle': -90, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'PMP': {'value': PMP, 'angle': -120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'LDPE': {'value': LDPE, 'angle': 180, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Poly': {'value': POLY, 'angle': 120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Acrylic': {'value': ACRYLIC, 'angle': 60, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Delrin': {'value': DELRIN, 'angle': 0, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Teflon': {'value': TEFLON, 'angle': -60, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+    }
+    background_roi_settings = {
+        '1': {'angle': -30, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        '2': {'angle': -150, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        '3': {'angle': -210, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        '4': {'angle': 30, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+    }
+    # thickness
+    thickness_roi_height = 40
+    thickness_roi_width = 10
+    thickness_roi_distance_mm = 38
+    thickness_roi_settings = {
+        'Left': {'angle': 180, 'width': thickness_roi_width, 'height': thickness_roi_height, 'distance': thickness_roi_distance_mm},
+        'Bottom': {'angle': 90, 'width': thickness_roi_height, 'height': thickness_roi_width, 'distance': thickness_roi_distance_mm},
+        'Right': {'angle': 0, 'width': thickness_roi_width, 'height': thickness_roi_height, 'distance': thickness_roi_distance_mm},
+        'Top': {'angle': -90, 'width': thickness_roi_height, 'height': thickness_roi_width, 'distance': thickness_roi_distance_mm},
+    }
+    # geometry
+    geometry_roi_size_mm = 35
+    geometry_roi_settings = {
+        'Top-Horizontal': (0, 1),
+        'Bottom-Horizontal': (2, 3),
+        'Left-Vertical': (0, 2),
+        'Right-Vertical': (1, 3),
+    }
 
-    def __init__(self, catphan, offset, hu_tolerance, thickness_tolerance, scaling_tolerance):
+    def __init__(self, catphan, offset: int, hu_tolerance: float, thickness_tolerance: float, scaling_tolerance: float):
         """
         Parameters
         ----------
         catphan : `~pylinac.cbct.CatPhanBase` instance.
-        offset : float
+        offset : int
         hu_tolerance : float
         thickness_tolerance : float
         scaling_tolerance : float
@@ -279,82 +327,19 @@ class CTP404(CatPhanModule):
         self.hu_tolerance = hu_tolerance
         self.thickness_tolerance = thickness_tolerance
         self.scaling_tolerance = scaling_tolerance
-        if isinstance(catphan, (CatPhan504, CatPhan503)):
-            self.hu = {
-                'distance to ROIs': 58.7/self.mm_per_pixel,
-                'ROI radius': 5/self.mm_per_pixel,
-                'ROIs': {
-                    'Air': {'value': -1000, 'angle': -90},
-                    'PMP': {'value': -200, 'angle': -120},
-                    'LDPE': {'value': -100, 'angle': 180},
-                    'Poly': {'value': -35, 'angle': 120},
-                    'Acrylic': {'value': 120, 'angle': 60},
-                    'Delrin': {'value': 340, 'angle': 0},
-                    'Teflon': {'value': 990, 'angle': -60},
-                },
-                'background ROI angles': [-30, -150, -210, 30]
-            }
-        elif isinstance(catphan, CatPhan600):
-            self.hu = {
-                'distance to ROIs': 58.7/self.mm_per_pixel,
-                'ROI radius': 5/self.mm_per_pixel,
-                'ROIs': {
-                    'Air': {'value': -1000, 'angle': 90},
-                    'PMP': {'value': -200, 'angle': 60},
-                    'LDPE': {'value': -100, 'angle': 0},
-                    'Poly': {'value': -35, 'angle': -60},
-                    'Acrylic': {'value': 120, 'angle': -120},
-                    'Delrin': {'value': 340, 'angle': -180},
-                    'Teflon': {'value': 990, 'angle': 120},
-                },
-                'background ROI angles': [-30, -150, -210, 30]
-            }
-        elif isinstance(catphan, CatPhan604):
-            self.hu = {
-                'distance to ROIs': 58.7/self.mm_per_pixel,
-                'ROI radius': 5/self.mm_per_pixel,
-                'ROIs': {
-                    'Air': {'value': -1000, 'angle': -90},
-                    'PMP': {'value': -200, 'angle': -120},
-                    '50% Bone': {'value': 725, 'angle': -150},
-                    'LDPE': {'value': -100, 'angle': 180},
-                    'Poly': {'value': -35, 'angle': 120},
-                    'Acrylic': {'value': 120, 'angle': 60},
-                    '20% Bone': {'value': 240, 'angle': 30},
-                    'Delrin': {'value': 340, 'angle': 0},
-                    'Teflon': {'value': 990, 'angle': -60},
-                },
-                'background ROI angles': [-30, -210]
-            }
-        self.bg_hu_rois = OrderedDict()
-        self.hu_rois = OrderedDict()
+        self.thickness_rois = {}
+        self.lines = {}
+        super().__init__(catphan, tolerance=hu_tolerance, offset=offset)
 
-        # thickness
-        height = 40
-        width = 10
-        self.thickness = {
-            'distance to ROIs': 38/self.mm_per_pixel,
-            'ROIs': {
-                'Left': {'angle': 180, 'width': width, 'height': height},
-                'Bottom': {'angle': 90, 'width': height, 'height': width},
-                'Right': {'angle': 0, 'width': width, 'height': height},
-                'Top': {'angle': -90, 'width': height, 'height': width},
-            }
-        }
-        self.thickness_rois = OrderedDict()
+    def _convert_units_in_settings(self):
+        super()._convert_units_in_settings()
+        for roi, settings in self.thickness_roi_settings.items():
+            self.thickness_roi_settings[roi]['width_pixels'] = settings['width'] / self.mm_per_pixel
+            self.thickness_roi_settings[roi]['height_pixels'] = settings['height'] / self.mm_per_pixel
+            self.thickness_roi_settings[roi]['angle_corrected'] = settings['angle'] + self.catphan_roll
+            self.thickness_roi_settings[roi]['distance_pixels'] = settings['distance'] / self.mm_per_pixel
 
-        # geometry
-        self.geometry = {
-            'line_assignments': {'Top-Horizontal': (0, 1),
-                                 'Bottom-Horizontal': (2, 3),
-                                 'Left-Vertical': (0, 2),
-                                 'Right-Vertical': (1, 3)},
-            'Image size': 35/self.mm_per_pixel,
-        }
-        self.lines = OrderedDict()
-        super().__init__(catphan, tolerance=None, offset=offset)
-
-    def preprocess(self, catphan):
+    def preprocess(self, catphan) -> None:
         # for the thickness analysis image, combine thin slices or just use one slice if slices are thick
         if float(catphan.dicom_stack.metadata.SliceThickness) < 3.5:
             self.pad = 1
@@ -362,36 +347,19 @@ class CTP404(CatPhanModule):
             self.pad = 0
         self.thickness_image = Slice(catphan, combine_method='mean', num_slices=self.num_slices+self.pad, slice_num=self.slice_num).image
 
-    def _setup_rois(self):
-        self._setup_hu_rois()
+    def _setup_rois(self) -> None:
+        super()._setup_rois()
         self._setup_thickness_rois()
         self._setup_geometry_rois()
 
-    def _setup_hu_rois(self):
-        # background ROIs
-        for idx, angle in enumerate(self.hu['background ROI angles']):
-            self.bg_hu_rois[idx] = HUDiskROI(self.image, angle+self.catphan_roll,
-                                             self.hu['ROI radius'],
-                                             self.hu['distance to ROIs'],
-                                             self.phan_center)
-        # # center background ROI
-        self.bg_hu_rois[idx+1] = HUDiskROI(self.image, 0, self.hu['ROI radius'], 0, self.phan_center)
-        bg_median = np.mean([roi.pixel_value for roi in self.bg_hu_rois.values()])
-        bg_std = np.std([roi.pixel_value for roi in self.bg_hu_rois.values()])
-        # actual HU linearity ROIs
-        for name, values in self.hu['ROIs'].items():
-            self.hu_rois[name] = HUDiskROI(self.image, values['angle']+self.catphan_roll, self.hu['ROI radius'], self.hu['distance to ROIs'],
-                                           self.phan_center, values['value'], self.hu_tolerance, background_median=bg_median,
-                                           background_std=bg_std)
+    def _setup_thickness_rois(self) -> None:
+        for name, setting in self.thickness_roi_settings.items():
+            self.thickness_rois[name] = ThicknessROI(self.thickness_image, setting['width_pixels'],
+                                                     setting['height_pixels'], setting['angle_corrected'],
+                                                     setting['distance_pixels'], self.phan_center)
 
-    def _setup_thickness_rois(self):
-        for name, value in self.thickness['ROIs'].items():
-            self.thickness_rois[name] = ThicknessROI(self.thickness_image, value['width']/self.mm_per_pixel,
-                                                     value['height']/self.mm_per_pixel, value['angle'],
-                                                     self.thickness['distance to ROIs'], self.phan_center)
-
-    def _setup_geometry_rois(self):
-        boxsize = self.geometry['Image size']
+    def _setup_geometry_rois(self) -> None:
+        boxsize = self.geometry_roi_size_mm / self.mm_per_pixel
         xbounds = (int(self.phan_center.x-boxsize), int(self.phan_center.x+boxsize))
         ybounds = (int(self.phan_center.y-boxsize), int(self.phan_center.y+boxsize))
         geo_img = self.image[ybounds[0]:ybounds[1], xbounds[0]:xbounds[1]]
@@ -403,16 +371,16 @@ class CTP404(CatPhanModule):
             regionprops = sorted(regionprops, key=lambda x: x.filled_area, reverse=True)[:4]
         sorted_regions = sorted(regionprops, key=lambda x: (2*x.centroid[0]+x.centroid[1]))
         centers = [Point(r.weighted_centroid[1]+xbounds[0], r.weighted_centroid[0]+ybounds[0]) for r in sorted_regions]
-        # # setup the geometric lines
-        for name, order in self.geometry['line_assignments'].items():
+        #  setup the geometric lines
+        for name, order in self.geometry_roi_settings.items():
             self.lines[name] = GeometricLine(centers[order[0]], centers[order[1]], self.mm_per_pixel, self.scaling_tolerance)
 
     @property
-    def lcv(self):
+    def lcv(self) -> float:
         """The low-contrast visibility"""
-        return 2 * abs(self.hu_rois['LDPE'].pixel_value - self.hu_rois['Poly'].pixel_value) / (self.hu_rois['LDPE'].std + self.hu_rois['Poly'].std)
+        return 2 * abs(self.rois['LDPE'].pixel_value - self.rois['Poly'].pixel_value) / (self.rois['LDPE'].std + self.rois['Poly'].std)
 
-    def plot_linearity(self, axis=None, plot_delta=True):
+    def plot_linearity(self, axis: Optional[plt.Axes]=None, plot_delta: bool=True) -> tuple:
         """Plot the HU linearity values to an axis.
 
         Parameters
@@ -422,15 +390,15 @@ class CTP404(CatPhanModule):
         plot_delta : bool
             Whether to plot the actual measured HU values (False), or the difference from nominal (True).
         """
-        nominal_x_values = [roi.nominal_val for roi in self.hu_rois.values()]
+        nominal_x_values = [roi.nominal_val for roi in self.rois.values()]
         if axis is None:
             fig, axis = plt.subplots()
         if plot_delta:
-            values = [roi.value_diff for roi in self.hu_rois.values()]
+            values = [roi.value_diff for roi in self.rois.values()]
             nominal_measurements = [0]*len(values)
             ylabel = 'HU Delta'
         else:
-            values = [roi.pixel_value for roi in self.hu_rois.values()]
+            values = [roi.pixel_value for roi in self.rois.values()]
             nominal_measurements = nominal_x_values
             ylabel = 'Measured Values'
         points = axis.plot(nominal_x_values, values, 'g+', markersize=15, mew=2)
@@ -445,21 +413,14 @@ class CTP404(CatPhanModule):
         return points
 
     @property
-    def passed_hu(self):
+    def passed_hu(self) -> bool:
         """Boolean specifying whether all the ROIs passed within tolerance."""
-        return all(roi.passed for roi in self.hu_rois.values())
+        return all(roi.passed for roi in self.rois.values())
 
-    @property
-    def hu_roi_vals(self):
-        return {key: value.pixel_value for key, value in self.hu_rois.items()}
-
-    def plot_rois(self, axis):
+    def plot_rois(self, axis: plt.Axes) -> None:
         """Plot the ROIs onto the image, as well as the background ROIs"""
         # plot HU linearity ROIs
-        for roi in self.hu_rois.values():
-            roi.plot2axes(axis, edgecolor=roi.plot_color)
-        for roi in self.bg_hu_rois.values():
-            roi.plot2axes(axis, edgecolor='blue')
+        super().plot_rois(axis)
         # plot thickness ROIs
         for roi in self.thickness_rois.values():
             roi.plot2axes(axis, edgecolor='blue')
@@ -468,23 +429,62 @@ class CTP404(CatPhanModule):
             line.plot2axes(axis, color=line.pass_fail_color)
 
     @property
-    def passed_thickness(self):
+    def passed_thickness(self) -> bool:
         """Whether the slice thickness was within tolerance from nominal."""
         return self.slice_thickness-self.thickness_tolerance<self.meas_slice_thickness<self.slice_thickness+self.thickness_tolerance
 
     @property
-    def meas_slice_thickness(self):
+    def meas_slice_thickness(self) -> float:
         """The average slice thickness for the 4 wire measurements in mm."""
         return np.mean(sorted(roi.wire_fwhm*self.mm_per_pixel*0.42 for roi in self.thickness_rois.values()))/(1+2*self.pad)
 
     @property
-    def avg_line_length(self):
+    def avg_line_length(self) -> float:
         return np.mean([line.length_mm for line in self.lines.values()])
 
     @property
-    def passed_geometry(self):
+    def passed_geometry(self) -> bool:
         """Returns whether all the line lengths were within tolerance."""
         return all(line.passed for line in self.lines.values())
+
+
+class CTP404CP503(CTP404CP504):
+    """Alias for namespace consistency"""
+    pass
+
+
+class CTP404CP600(CTP404CP504):
+    roi_dist_mm = 58.7
+    roi_radius_mm = 5
+    roi_settings = {
+        'Air': {'value': AIR, 'angle': 90, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'PMP': {'value': PMP, 'angle': 60, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'LDPE': {'value': LDPE, 'angle': 0, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Poly': {'value': POLY, 'angle': -60, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Acrylic': {'value': ACRYLIC, 'angle': -120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Delrin': {'value': DELRIN, 'angle': -180, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Teflon': {'value': TEFLON, 'angle': 120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+    }
+
+
+class CTP404CP604(CTP404CP504):
+    roi_dist_mm = 58.7
+    roi_radius_mm = 5
+    roi_settings = {
+        'Air': {'value': AIR, 'angle': -90, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'PMP': {'value': PMP, 'angle': -120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        '50% Bone': {'value': BONE_50, 'angle': -150, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'LDPE': {'value': LDPE, 'angle': 180, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Poly': {'value': POLY, 'angle': 120, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Acrylic': {'value': ACRYLIC, 'angle': 60, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        '20% Bone': {'value': BONE_20, 'angle': 30, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Delrin': {'value': DELRIN, 'angle': 0, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Teflon': {'value': TEFLON, 'angle': -60, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+    }
+    background_roi_settings = {
+        '1': {'angle': -30, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        '2': {'angle': -210, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+    }
 
 
 class CTP486(CatPhanModule):
@@ -493,24 +493,18 @@ class CTP486(CatPhanModule):
     """
     attr_name = 'ctp486'
     common_name = 'HU Uniformity'
-    dist2rois_mm = 53
+    roi_dist_mm = 53
     roi_radius_mm = 10
-    roi_data = {
-        'Top': {'angle': 90},
-        'Right': {'angle': 0},
-        'Bottom': {'angle': -90},
-        'Left': {'angle': 180},
-        'Center': {'angle': 0},
+    nominal_value = 0
+    roi_settings = {
+        'Top': {'value': nominal_value, 'angle': -90, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Right': {'value': nominal_value, 'angle': 0, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Bottom': {'value': nominal_value, 'angle': 90, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Left': {'value': nominal_value, 'angle': 180, 'distance': roi_dist_mm, 'radius': roi_radius_mm},
+        'Center': {'value': nominal_value, 'angle': 0, 'distance': 0, 'radius': roi_radius_mm},
     }
 
-    def _setup_rois(self):
-        self.rois = OrderedDict()
-        for name, data in self.roi_data.items():
-            distance = self.dist2rois if name != 'Center' else 0
-            self.rois[name] = HUDiskROI(self.image, data['angle']+self.catphan_roll, self.roi_radius, distance,
-                                        self.phan_center, 0, self.tolerance)
-
-    def plot_profiles(self, axis=None):
+    def plot_profiles(self, axis: plt.Axes=None) -> None:
         """Plot the horizontal and vertical profiles of the Uniformity slice.
 
         Parameters
@@ -525,21 +519,20 @@ class CTP486(CatPhanModule):
         axis.plot(horiz_data, 'g', label='Horizontal')
         axis.plot(vert_data, 'b', label='Vertical')
         axis.autoscale(tight=True)
-        # TODO: replace .plot() calls with .axhline() calls when mpld3 fixes functionality
-        axis.plot([i for i in range(len(horiz_data))], [self.tolerance] * len(horiz_data), 'r-', linewidth=3)
-        axis.plot([i for i in range(len(horiz_data))], [-self.tolerance] * len(horiz_data), 'r-', linewidth=3)
+        axis.axhline(self.tolerance, color='r', linewidth=3)
+        axis.axhline(-self.tolerance, color='r', linewidth=3)
         axis.grid(True)
         axis.set_ylabel("HU")
         axis.legend(loc=8, fontsize='small', title="")
         axis.set_title("Uniformity Profiles")
 
     @property
-    def overall_passed(self):
+    def overall_passed(self) -> bool:
         """Boolean specifying whether all the ROIs passed within tolerance."""
         return all(roi.passed for roi in self.rois.values())
 
     @property
-    def uniformity_index(self):
+    def uniformity_index(self) -> float:
         """The Uniformity Index"""
         center = self.rois['Center']
         uis = [100*((roi.pixel_value-center.pixel_value)/(center.pixel_value+1000)) for roi in self.rois.values()]
@@ -547,14 +540,14 @@ class CTP486(CatPhanModule):
         return uis[np.argmax(abs_uis)]
 
     @property
-    def integral_non_uniformity(self):
+    def integral_non_uniformity(self) -> float:
         """The Integral Non-Uniformity"""
         maxhu = max(roi.pixel_value for roi in self.rois.values())
         minhu = min(roi.pixel_value for roi in self.rois.values())
         return (maxhu - minhu)/(maxhu + minhu + 2000)
 
 
-class CTP528(CatPhanModule):
+class CTP528CP504(CatPhanModule):
     """Class for analysis of the Spatial Resolution slice of the CBCT dicom data set.
 
     A collapsed circle profile is taken of the line-pair region. This profile is search for
@@ -565,49 +558,42 @@ class CTP528(CatPhanModule):
     radius2linepairs_mm : float
         The radius in mm to the line pairs.
     """
-    attr_name = 'ctp528'
-    common_name = 'Spatial Resolution'
+    attr_name: str = 'ctp528'
+    common_name: str = 'Spatial Resolution'
     radius2linepairs_mm = 47
-    combine_method = 'max'
-    num_slices = 3
+    combine_method: str = 'max'
+    num_slices: int = 3
+    boundaries: Tuple[float, ...] = (0, 0.107, 0.173, 0.236, 0.286, 0.335, 0.387, 0.434, 0.479)
+    start_angle: float = np.pi
+    ccw: bool = True
+    roi_settings = {
+        'region 1': {'start': boundaries[0], 'end': boundaries[1], 'num peaks': 2, 'num valleys': 1,
+                     'peak spacing': 0.021, 'gap size (cm)': 0.5, 'lp/mm': 0.1},
+        'region 2': {'start': boundaries[1], 'end': boundaries[2], 'num peaks': 3, 'num valleys': 2,
+                     'peak spacing': 0.01, 'gap size (cm)': 0.25, 'lp/mm': 0.2},
+        'region 3': {'start': boundaries[2], 'end': boundaries[3], 'num peaks': 4, 'num valleys': 3,
+                     'peak spacing': 0.006, 'gap size (cm)': 0.167, 'lp/mm': 0.3},
+        'region 4': {'start': boundaries[3], 'end': boundaries[4], 'num peaks': 4, 'num valleys': 3,
+                     'peak spacing': 0.00557, 'gap size (cm)': 0.125, 'lp/mm': 0.4},
+        'region 5': {'start': boundaries[4], 'end': boundaries[5], 'num peaks': 4, 'num valleys': 3,
+                     'peak spacing': 0.004777, 'gap size (cm)': 0.1, 'lp/mm': 0.5},
+        'region 6': {'start': boundaries[5], 'end': boundaries[6], 'num peaks': 5, 'num valleys': 4,
+                     'peak spacing': 0.00398, 'gap size (cm)': 0.083, 'lp/mm': 0.6},
+        'region 7': {'start': boundaries[6], 'end': boundaries[7], 'num peaks': 5, 'num valleys': 4,
+                     'peak spacing': 0.00358, 'gap size (cm)': 0.071, 'lp/mm': 0.7},
+        'region 8': {'start': boundaries[7], 'end': boundaries[8], 'num peaks': 5, 'num valleys': 4,
+                     'peak spacing': 0.0027866, 'gap size (cm)': 0.063, 'lp/mm': 0.8},
+    }
 
     def _setup_rois(self):
         pass
 
-    @property
-    def sr_rois(self):
-        """Spatial resolution ROI characteristics.
-
-        Returns
-        -------
-        dict
-        """
-        boundaries_504 = boundaries_604 = (0, 0.107, 0.173, 0.236, 0.286, 0.335, 0.387, 0.434, 0.479)
-        boundaries_600 = (0, 0.116, 0.182, 0.244, 0.294, 0.344, 0.396, 0.443, 0.488)
-        boundaries_503 = (0, 0.111, 0.176, 0.240, 0.289, 0.339, 0.390, 0.436, 0.481)
-        if self.model == '504':
-            boundaries = boundaries_504
-        elif self.model == '604':
-            boundaries = boundaries_604
-        elif self.model == '503':
-            boundaries = boundaries_503
-        else:
-            boundaries = boundaries_600
-
-        rois = OrderedDict()
-        rois['region 1'] = {'start': boundaries[0], 'end': boundaries[1], 'num peaks': 2, 'num valleys': 1, 'peak spacing': 0.021, 'gap size (cm)': 0.5, 'lp/mm': 0.1}
-        rois['region 2'] = {'start': boundaries[1], 'end': boundaries[2], 'num peaks': 3, 'num valleys': 2, 'peak spacing': 0.01, 'gap size (cm)': 0.25, 'lp/mm': 0.2}
-        rois['region 3'] = {'start': boundaries[2], 'end': boundaries[3], 'num peaks': 4, 'num valleys': 3, 'peak spacing': 0.006, 'gap size (cm)': 0.167, 'lp/mm': 0.3}
-        rois['region 4'] = {'start': boundaries[3], 'end': boundaries[4], 'num peaks': 4, 'num valleys': 3, 'peak spacing': 0.00557, 'gap size (cm)': 0.125, 'lp/mm': 0.4}
-        rois['region 5'] = {'start': boundaries[4], 'end': boundaries[5], 'num peaks': 4, 'num valleys': 3, 'peak spacing': 0.004777, 'gap size (cm)': 0.1, 'lp/mm': 0.5}
-        rois['region 6'] = {'start': boundaries[5], 'end': boundaries[6], 'num peaks': 5, 'num valleys': 4, 'peak spacing': 0.00398, 'gap size (cm)': 0.083, 'lp/mm': 0.6}
-        rois['region 7'] = {'start': boundaries[6], 'end': boundaries[7], 'num peaks': 5, 'num valleys': 4, 'peak spacing': 0.00358, 'gap size (cm)': 0.071, 'lp/mm': 0.7}
-        rois['region 8'] = {'start': boundaries[7], 'end': boundaries[8], 'num peaks': 5, 'num valleys': 4, 'peak spacing': 0.0027866, 'gap size (cm)': 0.063, 'lp/mm': 0.8}
-        return rois
+    def _convert_units_in_settings(self):
+        pass
 
     @property
     @lru_cache(maxsize=1)
-    def mtf(self):
+    def mtf(self) -> MTF:
         """The Relative MTF of the line pairs, normalized to the first region.
 
         Returns
@@ -616,55 +602,35 @@ class CTP528(CatPhanModule):
         """
         maxs = list()
         mins = list()
-        for key, value in self.sr_rois.items():
-            max_values = self.circle_profile.find_peaks(min_distance=value['peak spacing'], max_number=value['num peaks'],
-                                                        search_region=(value['start'], value['end']), kind='value')
+        for key, value in self.roi_settings.items():
+            max_indices, max_values = self.circle_profile.find_peaks(min_distance=value['peak spacing'], max_number=value['num peaks'],
+                                                        search_region=(value['start'], value['end']))
             # check that the right number of peaks were found before continuing, otherwise stop searching for regions
             if len(max_values) != value['num peaks']:
                 break
             maxs.append(max_values.mean())
-            max_indices = self.circle_profile.find_peaks(min_distance=value['peak spacing'], max_number=value['num peaks'],
-                                                         search_region=(value['start'], value['end']), kind='index')
-            lower_mean = self.circle_profile.find_valleys(min_distance=value['peak spacing'], max_number=value['num valleys'],
-                                                          search_region=(min(max_indices), max(max_indices)), kind='value').mean()
-            mins.append(lower_mean)
+            _, min_values = self.circle_profile.find_valleys(min_distance=value['peak spacing'], max_number=value['num valleys'],
+                                                             search_region=(min(max_indices), max(max_indices)))
+            mins.append(min_values.mean())
         if not maxs:
             raise ValueError("Did not find any spatial resolution pairs to analyze. File an issue on github (https://github.com/jrkerns/pylinac/issues) if this is a valid dataset.")
 
-        spacings = [roi['lp/mm'] for roi in self.sr_rois.values()]
+        spacings = [roi['lp/mm'] for roi in self.roi_settings.values()]
         mtf = MTF(lp_spacings=spacings, lp_maximums=maxs, lp_minimums=mins)
         return mtf
 
     @property
-    def radius2linepairs(self):
+    def radius2linepairs(self) -> float:
         """Radius from the phantom center to the line-pair region, corrected for pixel spacing."""
         return self.radius2linepairs_mm / self.mm_per_pixel
 
-    def plot_rois(self, axis):
+    def plot_rois(self, axis: plt.Axes) -> None:
         """Plot the circles where the profile was taken within."""
         self.circle_profile.plot2axes(axis, edgecolor='blue', plot_peaks=False)
 
-    def preprocess(self, catphan):
-        if isinstance(catphan, CatPhan504):
-            self.start_angle = np.pi
-            self.ccw = True
-            self.model = '504'
-        elif isinstance(catphan, CatPhan503):
-            self.start_angle = 0
-            self.ccw = False
-            self.model = '503'
-        elif isinstance(catphan, CatPhan600):
-            self.start_angle = np.pi - 0.1
-            self.ccw = False
-            self.model = '600'
-        elif isinstance(catphan, CatPhan604):
-            self.start_angle = np.pi
-            self.ccw = True
-            self.model = '604'
-
     @property
     @lru_cache(maxsize=1)
-    def circle_profile(self):
+    def circle_profile(self) -> CollapsedCircleProfile:
         """Calculate the median profile of the Line Pair region.
 
         Returns
@@ -678,7 +644,7 @@ class CTP528(CatPhanModule):
         circle_profile.ground()
         return circle_profile
 
-    def plot_mtf(self, axis=None):
+    def plot_mtf(self, axis: Optional[plt.Axes]=None) -> Tuple:
         """Plot the Relative MTF.
 
         Parameters
@@ -697,6 +663,23 @@ class CTP528(CatPhanModule):
         return points
 
 
+class CTP528CP604(CTP528CP504):
+    """Alias for namespace consistency."""
+    pass
+
+
+class CTP528CP600(CTP528CP504):
+    start_angle = np.pi - 0.1
+    ccw = False
+    boundaries = (0, 0.116, 0.182, 0.244, 0.294, 0.344, 0.396, 0.443, 0.488)
+
+
+class CTP528CP503(CTP528CP504):
+    start_angle = 0
+    ccw = False
+    boundaries = (0, 0.111, 0.176, 0.240, 0.289, 0.339, 0.390, 0.436, 0.481)
+
+
 class GeometricLine(Line):
     """Represents a line connecting two nodes/ROIs on the Geometry Slice.
 
@@ -705,9 +688,9 @@ class GeometricLine(Line):
     nominal_length_mm : int, float
         The nominal distance between the geometric nodes, in mm.
     """
-    nominal_length_mm = 50
+    nominal_length_mm: Union[float, int] = 50
 
-    def __init__(self, geo_roi1, geo_roi2, mm_per_pixel, tolerance):
+    def __init__(self, geo_roi1: Point, geo_roi2: Point, mm_per_pixel: float, tolerance: Union[int, float]):
         """
         Parameters
         ----------
@@ -725,17 +708,17 @@ class GeometricLine(Line):
         self.tolerance = tolerance
 
     @property
-    def passed(self):
+    def passed(self) -> bool:
         """Whether the line passed tolerance."""
         return self.nominal_length_mm - self.tolerance < self.length_mm < self.nominal_length_mm + self.tolerance
 
     @property
-    def pass_fail_color(self):
+    def pass_fail_color(self) -> str:
         """Plot color for the line, based on pass/fail status."""
         return 'blue' if self.passed else 'red'
 
     @property
-    def length_mm(self):
+    def length_mm(self) -> float:
         """Return the length of the line in mm."""
         return self.length*self.mm_per_pixel
 
@@ -749,102 +732,60 @@ class CTP515(CatPhanModule):
     attr_name = 'ctp515'
     common_name = 'Low Contrast'
     num_slices = 1
-    dist2rois_mm = 50
-    bg_roi_radius_mm = 4
-    inner_bg_dist_mm = [37, 39, 40, 40.5, 41.5, 41.5]
-    outer_bg_dist_mm = [63, 61, 60, 59.5, 58.5, 58.5]
+    roi_dist_mm = 50
     roi_radius_mm = [6, 3.5, 3, 2.5, 2, 1.5]
-    roi_names = ['15', '9', '8', '7', '6', '5']
-    roi_nominal_angles = [-87.4, -69.1, -52.7, -38.5, -25.1, -12.9]
+    roi_angles = [-87.4, -69.1, -52.7, -38.5, -25.1, -12.9]
+    roi_settings = {
+        '15': {'angle': roi_angles[0], 'distance': roi_dist_mm, 'radius': roi_radius_mm[0]},
+        '9': {'angle': roi_angles[1], 'distance': roi_dist_mm, 'radius': roi_radius_mm[1]},
+        '8': {'angle': roi_angles[2], 'distance': roi_dist_mm, 'radius': roi_radius_mm[2]},
+        '7': {'angle': roi_angles[3], 'distance': roi_dist_mm, 'radius': roi_radius_mm[3]},
+        '6': {'angle': roi_angles[4], 'distance': roi_dist_mm, 'radius': roi_radius_mm[4]},
+        '5': {'angle': roi_angles[5], 'distance': roi_dist_mm, 'radius': roi_radius_mm[5]},
+    }
+    background_roi_dist_ratio = 0.75
+    background_roi_radius_mm = 4
 
-    def __init__(self, catphan, tolerance, cnr_threshold, offset=0):
+    def __init__(self, catphan, tolerance: float, cnr_threshold: float, offset: int):
         self.cnr_threshold = cnr_threshold
         super().__init__(catphan, tolerance=tolerance, offset=offset)
 
     def _setup_rois(self):
-        self.rois = OrderedDict()
-        self.inner_bg_rois = OrderedDict()
-        self.outer_bg_rois = OrderedDict()
-        for idx, (name, angle, radius) in enumerate(zip(self.roi_names, self.roi_angles, self.roi_radius)):
-            self.inner_bg_rois[name] = LowContrastDiskROI(self.image, angle, self.bg_roi_radius, self.inner_bg_dist[idx],
-                                                          self.phan_center, cnr_threshold=self.cnr_threshold)
-            self.outer_bg_rois[name] = LowContrastDiskROI(self.image, angle, self.bg_roi_radius, self.outer_bg_dist[idx],
-                                                          self.phan_center, cnr_threshold=self.cnr_threshold)
-            background_val = np.mean([self.inner_bg_rois[name].pixel_value, self.outer_bg_rois[name].pixel_value])
-            self.rois[name] = LowContrastDiskROI(self.image, angle, radius, self.dist2rois,
+        # create both background rois dynamically, then create the actual sample ROI as normal
+        for name, setting in self.roi_settings.items():
+            self.background_rois[name+'-outer'] = LowContrastDiskROI(self.image, setting['angle_corrected'],
+                                                                     self.background_roi_radius_mm / self.mm_per_pixel,
+                                                                     setting['distance_pixels'] * (2-self.background_roi_dist_ratio),
+                                                                     self.phan_center)
+            self.background_rois[name+'-inner'] = LowContrastDiskROI(self.image, setting['angle_corrected'],
+                                                                     self.background_roi_radius_mm / self.mm_per_pixel,
+                                                                     setting['distance_pixels'] * self.background_roi_dist_ratio,
+                                                                     self.phan_center)
+            background_val = np.mean([self.background_rois[name+'-outer'].pixel_value, self.background_rois[name+'-inner'].pixel_value])
+
+            self.rois[name] = LowContrastDiskROI(self.image, setting['angle_corrected'], setting['radius_pixels'], setting['distance_pixels'],
                                                  self.phan_center, background=background_val, cnr_threshold=self.cnr_threshold)
 
-    @property
-    def inner_bg_dist(self):
-        return np.array(self.inner_bg_dist_mm) / self.mm_per_pixel
+    def plot_rois(self, axis: plt.Axes, threshold: str='constant'):
+        super().plot_rois(axis, threshold)
 
     @property
-    def outer_bg_dist(self):
-        return np.array(self.outer_bg_dist_mm) / self.mm_per_pixel
-
-    @property
-    def bg_roi_radius(self):
-        """A list of the ROI radii, scaled to pixels."""
-        return self.bg_roi_radius_mm / self.mm_per_pixel
-
-    @property
-    def roi_radius(self):
-        """A list of the ROI radii, scaled to pixels."""
-        return [radius / self.mm_per_pixel for radius in self.roi_radius_mm]
-
-    @property
-    def rois_visible(self):
+    def rois_visible(self) -> int:
         """The number of ROIs "visible"."""
         return sum(roi.passed_cnr_constant for roi in self.rois.values())
-
-    def plot_rois(self, axis):
-        """Plot the ROIs to an axis."""
-        super().plot_rois(axis, threshold='constant')
-        for roi in self.inner_bg_rois.values():
-            roi.plot2axes(axis, 'blue')
-        for roi in self.outer_bg_rois.values():
-            roi.plot2axes(axis, 'blue')
-
-    @property
-    def overall_passed(self):
-        """Whether there were enough low contrast ROIs "seen"."""
-        return sum(roi.passed_cnr_constant for roi in self.rois.values()) >= self.tolerance
-
-    def plot_contrast(self, axis=None):
-        """Plot the contrast constant.
-        Parameters
-        ----------
-        axis : None, matplotlib.Axes
-            The axis to plot the contrast on. If None, will create a new figure.
-        """
-        if axis is None:
-            fig, axis = plt.subplots()
-        else:
-            axis = axis.twinx().twiny()
-        sizes = np.array(list(self.rois.keys()), dtype=int)
-        contrasts = [roi.contrast_constant for roi in self.rois.values()]
-        points = axis.plot(sizes, contrasts)
-        axis.margins(0.05)
-        axis.grid(True)
-        axis.set_xlabel('ROI size (mm)')
-        axis.set_ylabel("Contrast * Diameter")
-        return points
 
 
 class CatPhanBase:
     """A class for loading and analyzing CT DICOM files of a CatPhan 504 & CatPhan 503. Can be from a CBCT or CT scanner
     Analyzes: Uniformity (CTP486), High-Contrast Spatial Resolution (CTP528), Image Scaling & HU Linearity (CTP404).
     """
-    _demo_url = ''
-    _model = ''
-    air_bubble_radius_mm = 7
-    localization_radius = 59
-    was_from_zip = False
-    modules = {
-        CTP404: {'offset': 0},
-    }
+    _demo_url: str = ''
+    _model: str = ''
+    air_bubble_radius_mm: Union[int, float] = 7
+    localization_radius: Union[int, float] = 59
+    was_from_zip: bool = False
 
-    def __init__(self, folderpath, check_uid=True):
+    def __init__(self, folderpath: str, check_uid: bool=True):
         """
         Parameters
         ----------
@@ -872,7 +813,7 @@ class CatPhanBase:
         return cls.from_zip(demo_file)
 
     @classmethod
-    def from_url(cls, url, check_uid=True):
+    def from_url(cls, url: str, check_uid: bool=True):
         """Instantiate a CBCT object from a URL pointing to a .zip object.
 
         Parameters
@@ -886,7 +827,7 @@ class CatPhanBase:
         return cls.from_zip(filename, check_uid=check_uid)
 
     @classmethod
-    def from_zip(cls, zip_file, check_uid=True):
+    def from_zip(cls, zip_file: Union[str, zipfile.ZipFile], check_uid: bool=True):
         """Construct a CBCT object and pass the zip file.
 
         Parameters
@@ -906,7 +847,7 @@ class CatPhanBase:
         obj.was_from_zip = True
         return obj
 
-    def plot_analyzed_image(self, show=True):
+    def plot_analyzed_image(self, show: bool=True) -> None:
         """Plot the images used in the calculate and summary data.
 
         Parameters
@@ -927,17 +868,17 @@ class CatPhanBase:
         plot(self.ctp404, hu_ax)
         hu_lin_ax = plt.subplot2grid(grid_size, (0, 2))
         self.ctp404.plot_linearity(hu_lin_ax)
-        if CTP486 in self.modules:
+        if self._has_module(CTP486):
             unif_ax = plt.subplot2grid(grid_size, (0, 0))
             plot(self.ctp486, unif_ax)
             unif_prof_ax = plt.subplot2grid(grid_size, (1, 2), colspan=2)
             self.ctp486.plot_profiles(unif_prof_ax)
-        if CTP528 in self.modules:
+        if self._has_module(CTP528CP504):
             sr_ax = plt.subplot2grid(grid_size, (1, 0))
             plot(self.ctp528, sr_ax)
             mtf_ax = plt.subplot2grid(grid_size, (0, 3))
             self.ctp528.plot_mtf(mtf_ax)
-        if CTP515 in self.modules:
+        if self._has_module(CTP515):
             locon_ax = plt.subplot2grid(grid_size, (1, 1))
             plot(self.ctp515, locon_ax)
 
@@ -946,7 +887,7 @@ class CatPhanBase:
         if show:
             plt.show()
 
-    def save_analyzed_image(self, filename, **kwargs):
+    def save_analyzed_image(self, filename: str, **kwargs) -> None:
         """Save the analyzed summary plot.
 
         Parameters
@@ -959,7 +900,7 @@ class CatPhanBase:
         self.plot_analyzed_image(show=False)
         plt.savefig(filename, **kwargs)
 
-    def plot_analyzed_subimage(self, subimage='hu', delta=True, show=True):
+    def plot_analyzed_subimage(self, subimage: str='hu', delta: bool=True, show: bool=True) -> None:
         """Plot a specific component of the CBCT analysis.
 
         Parameters
@@ -1014,7 +955,7 @@ class CatPhanBase:
         if show:
             plt.show()
 
-    def save_analyzed_subimage(self, filename, subimage='hu', **kwargs):
+    def save_analyzed_subimage(self, filename: str, subimage: str='hu', **kwargs):
         """Save a component image to file.
 
         Parameters
@@ -1029,7 +970,7 @@ class CatPhanBase:
         if isinstance(filename, str):
             print(f"CatPhan subimage figure saved to {osp.abspath(filename)}")
 
-    def _results(self):
+    def _results(self) -> None:
         """Helper function to spit out values that will be tested."""
         print(self.results())
         print(f"Phantom roll: {self.find_phantom_roll()}")
@@ -1040,18 +981,18 @@ class CatPhanBase:
             mtfs[mtf] = mtfval
         print(f'MTFs: {mtfs}')
 
-    def localize(self):
+    def localize(self) -> None:
         """Find the slice number of the catphan's HU linearity module and roll angle"""
         self.origin_slice = self.find_origin_slice()
         self.catphan_roll = self.find_phantom_roll()
 
     @property
-    def mm_per_pixel(self):
+    def mm_per_pixel(self) -> float:
         """The millimeters per pixel of the DICOM images."""
         return self.dicom_stack.metadata.PixelSpacing[0]
 
     @lru_cache(maxsize=1)
-    def find_origin_slice(self):
+    def find_origin_slice(self) -> int:
         """Using a brute force search of the images, find the median HU linearity slice.
 
         This method walks through all the images and takes a collapsed circle profile where the HU
@@ -1098,7 +1039,7 @@ class CatPhanBase:
             return center_hu_slice
 
     @lru_cache(maxsize=1)
-    def find_phantom_roll(self):
+    def find_phantom_roll(self) -> float:
         """Determine the "roll" of the phantom.
 
         This algorithm uses the two air bubbles in the HU slice and the resulting angle between them.
@@ -1128,16 +1069,11 @@ class CatPhanBase:
         return anglroll
 
     @property
-    def num_images(self):
-        """Return the number of images loaded.
-
-        Returns
-        -------
-        float
-        """
+    def num_images(self) -> int:
+        """The number of images loaded."""
         return len(self.dicom_stack)
 
-    def _is_within_image_extent(self, image_num):
+    def _is_within_image_extent(self, image_num: int) -> bool:
         """Determine if the image number is beyond the edges of the images (negative or past last image)."""
         if self.num_images - 1 > image_num > 1:
             return True
@@ -1146,36 +1082,43 @@ class CatPhanBase:
                              "wasn't loaded or the entire phantom wasn't scanned.")
 
     @property
-    def catphan_size(self):
-        """The expected size of the phantom in pixels, based on a 20cm wide phantom.
-
-        Returns
-        -------
-        float
-        """
+    def catphan_size(self) -> float:
+        """The expected size of the phantom in pixels, based on a 20cm wide phantom."""
         phan_area = np.pi*(self.catphan_radius_mm**2)
         return phan_area/(self.mm_per_pixel**2)
 
-    def publish_pdf(self, filename: str, notes: str=None, open_file: bool=False, metadata: Optional[dict]=None):
+    def publish_pdf(self, filename: str, notes: str=None, open_file: bool=False, metadata: Optional[dict]=None) -> None:
         """Publish (print) a PDF containing the analysis and quantitative results.
 
         Parameters
         ----------
         filename : (str, file-like object}
             The file to write the results to.
+        notes : str, list of strings
+            Text; if str, prints single line.
+            If list of strings, each list item is printed on its own line.
+        open_file : bool
+            Whether to open the file using the default program after creation.
+        metadata : dict
+            Extra data to be passed and shown in the PDF. The key and value will be shown with a colon.
+            E.g. passing {'Author': 'James', 'Unit': 'TrueBeam'} would result in text in the PDF like:
+            --------------
+            Author: James
+            Unit: TrueBeam
+            --------------
         """
         analysis_title = f'CatPhan {self._model} Analysis'
         module_texts = [
             [' - CTP404 Results - ',
              f'HU Linearity tolerance: {self.ctp404.hu_tolerance}',
-             f'HU Linearity ROIs: {self.ctp404.hu_roi_vals}',
+             f'HU Linearity ROIs: {self.ctp404.roi_vals_as_str}',
              f'Geometric node spacing (mm): {self.ctp404.avg_line_length:2.2f}',
              f'Slice thickness (mm): {self.ctp404.meas_slice_thickness:2.2f}',
              f'Low contrast visibility: {self.ctp404.lcv:2.2f}',
             ],
         ]
         module_images = [('hu', 'lin')]
-        if CTP528 in self.modules:
+        if self._has_module(CTP528CP504):
             add = [' - CTP528 Results - ',
              f'MTF 80% (lp/mm): {self.ctp528.mtf.relative_resolution(80):2.2f}',
              f'MTF 50% (lp/mm): {self.ctp528.mtf.relative_resolution(50):2.2f}',
@@ -1183,16 +1126,16 @@ class CatPhanBase:
             ]
             module_texts.append(add)
             module_images.append(('sp', 'mtf'))
-        if CTP486 in self.modules:
+        if self._has_module(CTP486):
             add = [' - CTP486 Results - ',
              f'Uniformity tolerance: {self.ctp486.tolerance}',
-             f'Uniformity ROIs: {self.ctp486.get_ROI_vals()}',
+             f'Uniformity ROIs: {self.ctp486.roi_vals_as_str}',
              f'Uniformity Index: {self.ctp486.uniformity_index:2.2f}',
              f'Integral non-uniformity: {self.ctp486.integral_non_uniformity:2.4f}',
             ]
             module_texts.append(add)
             module_images.append(('un', 'prof'))
-        if CTP515 in self.modules:
+        if self._has_module(CTP515):
             add = [' - CTP515 Results - ',
              f'CNR threshold: {self.ctp515.cnr_threshold}',
              f'Low contrast ROIs "seen": {self.ctp515.rois_visible}'
@@ -1205,7 +1148,7 @@ class CatPhanBase:
         if open_file:
             webbrowser.open(filename)
 
-    def _publish_pdf(self, filename, metadata, notes, analysis_title, texts, imgs):
+    def _publish_pdf(self, filename: str, metadata: Optional[dict], notes: str, analysis_title: str, texts: Sequence[str], imgs: Sequence[Tuple[str, str]]):
         try:
             date = datetime.strptime(self.dicom_stack[0].metadata.InstanceCreationDate, "%Y%m%d").strftime("%A, %B %d, %Y")
         except:
@@ -1225,7 +1168,7 @@ class CatPhanBase:
             canvas.add_new_page()
         canvas.finish()
 
-    def _zip_images(self):
+    def _zip_images(self) -> None:
         """Compress the raw images into a ZIP archive and remove the uncompressed images."""
         zip_name = f'{osp.dirname(self.dicom_stack[0].path)}\CBCT - {self.dicom_stack[0].date_created(format="%A, %I-%M-%S, %B %d, %Y")}.zip'
         with zipfile.ZipFile(zip_name, 'w', compression=zipfile.ZIP_DEFLATED) as zfile:
@@ -1237,8 +1180,8 @@ class CatPhanBase:
             except:
                 pass
 
-    def analyze(self, hu_tolerance=40, scaling_tolerance=1, thickness_tolerance=0.2,
-                low_contrast_tolerance=1, cnr_threshold=15, zip_after=False):
+    def analyze(self, hu_tolerance: Union[int, float]=40, scaling_tolerance: Union[int, float]=1, thickness_tolerance: Union[int, float]=0.2,
+                low_contrast_tolerance: Union[int, float]=1, cnr_threshold: Union[int, float]=15, zip_after: bool=False):
         """Single-method full analysis of CBCT DICOM files.
 
         Parameters
@@ -1260,38 +1203,53 @@ class CatPhanBase:
             If the CT images were not compressed before analysis and this is set to true, pylinac will compress
             the analyzed images into a ZIP archive.
         """
-        self.ctp404 = CTP404(self, offset=0, hu_tolerance=hu_tolerance, thickness_tolerance=thickness_tolerance,
+        ctp404, offset = self._get_module(CTP404CP504, raise_empty=True)
+        self.ctp404 = ctp404(self, offset=offset, hu_tolerance=hu_tolerance, thickness_tolerance=thickness_tolerance,
                              scaling_tolerance=scaling_tolerance)
-        if CTP486 in self.modules:
-            self.ctp486 = CTP486(self, offset=self.modules[CTP486]['offset'], tolerance=hu_tolerance)
-        if CTP528 in self.modules:
-            self.ctp528 = CTP528(self, offset=self.modules[CTP528]['offset'], tolerance=None)
-        if CTP515 in self.modules:
-            self.ctp515 = CTP515(self, tolerance=low_contrast_tolerance, cnr_threshold=cnr_threshold,
-                                 offset=self.modules[CTP515]['offset'])
+        if self._has_module(CTP486):
+            ctp486, offset = self._get_module(CTP486)
+            self.ctp486 = ctp486(self, offset=offset, tolerance=hu_tolerance)
+        if self._has_module(CTP528CP504):
+            ctp528, offset = self._get_module(CTP528CP504)
+            self.ctp528 = ctp528(self, offset=offset, tolerance=None)
+        if self._has_module(CTP515):
+            ctp515, offset = self._get_module(CTP515)
+            self.ctp515 = ctp515(self, tolerance=low_contrast_tolerance, cnr_threshold=cnr_threshold,
+                                 offset=offset)
         if zip_after and not self.was_from_zip:
             self._zip_images()
 
-    def results(self):
+    def _has_module(self, module_of_interest: CatPhanModule) -> bool:
+        return any(issubclass(module, module_of_interest) for module in self.modules.keys())
+
+    def _get_module(self, module_of_interest: CatPhanModule, raise_empty: bool=False) -> Tuple[CatPhanModule, int]:
+        """Grab the module that is, or is a subclass of, the module of interest. This allows users to subclass a CTP module and pass that in."""
+        for module, values in self.modules.items():
+            if issubclass(module, module_of_interest):
+                return module, values['offset']
+        if raise_empty:
+            raise ValueError(f"Tried to find the {module_of_interest} or a subclass of it. Did you override `modules` and not pass this module in?")
+
+    def results(self) -> str:
         """Return the results of the analysis as a string. Use with print()."""
         string = (f'\n - CatPhan {self._model} QA Test - \n'
-                  f'HU Linearity ROIs: {self.ctp404.hu_roi_vals}\n'
+                  f'HU Linearity ROIs: {self.ctp404.roi_vals_as_str}\n'
                   f'HU Passed?: {self.ctp404.passed_hu}\n'
                   f'Low contrast visibility: {self.ctp404.lcv:2.2f}\n'
                   f'Geometric Line Average (mm): {self.ctp404.avg_line_length:2.2f}\n'
                   f'Geometry Passed?: {self.ctp404.passed_geometry}\n'
                   f'Measured Slice Thickness (mm): {self.ctp404.meas_slice_thickness:2.3f}\n'
                   f'Slice Thickness Passed? {self.ctp404.passed_thickness}\n')
-        if CTP486 in self.modules:
-            add = (f'Uniformity ROIs: {self.ctp486.get_ROI_vals()}\n'
+        if self._has_module(CTP486):
+            add = (f'Uniformity ROIs: {self.ctp486.roi_vals_as_str}\n'
                   f'Uniformity index: {self.ctp486.uniformity_index:2.3f}\n'
                   f'Integral non-uniformity: {self.ctp486.integral_non_uniformity:2.4f}\n'
                   f'Uniformity Passed?: {self.ctp486.overall_passed}\n')
             string += add
-        if CTP528 in self.modules:
+        if self._has_module(CTP528CP504):
             add = (f'MTF 50% (lp/mm): {self.ctp528.mtf.relative_resolution(50):2.2f}\n')
             string += add
-        if CTP515 in self.modules:
+        if self._has_module(CTP515):
             add = (f'Low contrast ROIs "seen": {self.ctp515.rois_visible}\n')
             string += add
         return string
@@ -1305,12 +1263,13 @@ class CatPhan503(CatPhanBase):
     _model = '503'
     catphan_radius_mm = 97
     modules = {
+        CTP404CP503: {'offset': 0},
         CTP486: {'offset': -110},
-        CTP528: {'offset': -30},
+        CTP528CP503: {'offset': -30},
     }
 
     @staticmethod
-    def run_demo(show=True):
+    def run_demo(show: bool=True):
         """Run the CBCT demo using high-quality head protocol images."""
         cbct = CatPhan503.from_demo_images()
         cbct.analyze()
@@ -1327,13 +1286,14 @@ class CatPhan504(CatPhanBase):
     _model = '504'
     catphan_radius_mm = 101
     modules = {
+        CTP404CP504: {'offset': 0},
         CTP486: {'offset': -65},
-        CTP528: {'offset': 30},
+        CTP528CP504: {'offset': 30},
         CTP515: {'offset': -30}
     }
 
     @staticmethod
-    def run_demo(show=True):
+    def run_demo(show: bool=True):
         """Run the CBCT demo using high-quality head protocol images."""
         cbct = CatPhan504.from_demo_images()
         cbct.analyze()
@@ -1350,13 +1310,14 @@ class CatPhan604(CatPhanBase):
     _model = '604'
     catphan_radius_mm = 101
     modules = {
+        CTP404CP604: {'offset': 0},
         CTP486: {'offset': -80},
-        CTP528: {'offset': 42},
+        CTP528CP604: {'offset': 42},
         CTP515: {'offset': -40}
     }
 
     @staticmethod
-    def run_demo(show=True):
+    def run_demo(show: bool=True):
         """Run the CBCT demo using high-quality head protocol images."""
         cbct = CatPhan604.from_demo_images()
         cbct.analyze()
@@ -1373,13 +1334,14 @@ class CatPhan600(CatPhanBase):
     _model = '600'
     catphan_radius_mm = 101
     modules = {
+        CTP404CP600: {'offset': 0},
         CTP486: {'offset': -160},
         CTP515: {'offset': -110},
-        CTP528: {'offset': -70},
+        CTP528CP600: {'offset': -70},
     }
 
     @staticmethod
-    def run_demo(show=True):
+    def run_demo(show: bool=True):
         """Run the CatPhan 600 demo."""
         cbct = CatPhan600.from_demo_images()
         cbct.analyze()
@@ -1387,7 +1349,8 @@ class CatPhan600(CatPhanBase):
         cbct.plot_analyzed_image(show)
 
 
-def get_regions(slice_or_arr, fill_holes=False, clear_borders=True, threshold='otsu'):
+@argue.options(threshold=('otsu', 'mean'))
+def get_regions(slice_or_arr: Union[Slice, np.ndarray], fill_holes: bool=False, clear_borders: bool=True, threshold: str='otsu') -> Tuple[np.ndarray, list, int]:
     """Get the skimage regions of a black & white image."""
     if threshold == 'otsu':
         thresmeth = filters.threshold_otsu
@@ -1417,8 +1380,8 @@ def get_regions(slice_or_arr, fill_holes=False, clear_borders=True, threshold='o
     return labeled_arr, regionprops, num_roi
 
 
-@value_accept(mode=('mean', 'median', 'max'))
-def combine_surrounding_slices(dicomstack, nominal_slice_num, slices_plusminus=1, mode='mean'):
+@argue.options(mode=('mean', 'median', 'max'))
+def combine_surrounding_slices(dicomstack: DicomImageStack, nominal_slice_num: int, slices_plusminus: int=1, mode: str='mean') -> np.ndarray:
     """Return an array that is the combination of a given slice and a number of slices surrounding it.
 
     Parameters

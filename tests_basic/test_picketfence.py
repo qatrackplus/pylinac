@@ -1,6 +1,6 @@
 import os.path as osp
 import tempfile
-from unittest import TestCase, skip
+from unittest import TestCase
 
 import matplotlib.pyplot as plt
 
@@ -22,7 +22,7 @@ class TestLoading(LoadingTestBase, TestCase):
         log_file = osp.join(TEST_DIR, 'PF_log.bin')
         pf_file = osp.join(TEST_DIR, 'PF.dcm')
         pf = PicketFence(pf_file, log=log_file)
-        pf.analyze(hdmlc=True)
+        pf.analyze()
 
 
 class GeneralTests(TestCase):
@@ -70,7 +70,7 @@ class PFTestMixin(LocationMixin):
     """Base Mixin for testing a picketfence image."""
     dir_location = TEST_DIR
     picket_orientation = UP_DOWN
-    hdmlc = False
+    mlc = 'Millennium'
     num_pickets = 10
     pass_num_pickets = False
     percent_passing = 100
@@ -91,9 +91,9 @@ class PFTestMixin(LocationMixin):
     def setUpClass(cls):
         cls.pf = PicketFence(cls.get_filename(), log=cls.get_logfile())
         if cls.pass_num_pickets:
-            cls.pf.analyze(hdmlc=cls.hdmlc, sag_adjustment=cls.sag_adjustment, num_pickets=cls.num_pickets)
+            cls.pf.analyze(sag_adjustment=cls.sag_adjustment, num_pickets=cls.num_pickets)
         else:
-            cls.pf.analyze(hdmlc=cls.hdmlc, sag_adjustment=cls.sag_adjustment)
+            cls.pf.analyze(sag_adjustment=cls.sag_adjustment)
 
     def test_passed(self):
         self.assertEqual(self.pf.passed, self.passes)
@@ -114,7 +114,7 @@ class PFTestMixin(LocationMixin):
         self.assertAlmostEqual(self.pf.abs_median_error, self.abs_median_error, delta=0.05)
 
     def test_picket_spacing(self):
-        self.assertAlmostEqual(self.pf.pickets.mean_spacing, self.mean_picket_spacing, delta=0.5)
+        self.assertAlmostEqual(self.pf.mean_picket_spacing, self.mean_picket_spacing, delta=0.5)
 
 
 class PFDemo(PFTestMixin, TestCase):
@@ -126,7 +126,7 @@ class PFDemo(PFTestMixin, TestCase):
     @classmethod
     def setUpClass(cls):
         cls.pf = PicketFence.from_demo_image()
-        cls.pf.analyze(hdmlc=cls.hdmlc, sag_adjustment=cls.sag_adjustment)
+        cls.pf.analyze(sag_adjustment=cls.sag_adjustment)
 
     def test_demo_lower_tolerance(self):
         pf = PicketFence.from_demo_image()
@@ -170,7 +170,7 @@ class ElektaCloseEdgesRot90(PFTestMixin, TestCase):
     def setUpClass(cls):
         cls.pf = PicketFence(cls.get_filename(), log=cls.get_logfile())
         cls.pf.image.rot90()
-        cls.pf.analyze(hdmlc=cls.hdmlc, sag_adjustment=cls.sag_adjustment)
+        cls.pf.analyze(sag_adjustment=cls.sag_adjustment)
 
 
 class MultipleImagesPF(PFTestMixin, TestCase):
@@ -185,5 +185,5 @@ class MultipleImagesPF(PFTestMixin, TestCase):
     def setUpClass(cls):
         path1 = osp.join(TEST_DIR, 'combo-jaw.dcm')
         path2 = osp.join(TEST_DIR, 'combo-mlc.dcm')
-        cls.pf = PicketFence.from_multiple_images([path1, path2])
-        cls.pf.analyze(hdmlc=cls.hdmlc, sag_adjustment=cls.sag_adjustment, orientation='left')
+        cls.pf = PicketFence.from_multiple_images([path1, path2], stretch_each=True)
+        cls.pf.analyze(sag_adjustment=cls.sag_adjustment, orientation='left')

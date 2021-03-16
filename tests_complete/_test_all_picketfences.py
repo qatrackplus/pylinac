@@ -87,7 +87,7 @@ class AS500error(PFBankMixin, TestCase):
     """Tests for the AS500#2 image."""
     file_path = ['AS500-error.dcm']
     num_pickets = 6
-    percent_passing = 97.5
+    percent_passing = 99
     max_error = 0.55
     abs_median_error = 0.07
     passes = False
@@ -134,15 +134,15 @@ class AS1000_90(PFBankMixin, TestCase):
 class AS1000HDSmall(PFBankMixin, TestCase):
     """Tests for the AS1000 image."""
     file_path = ['AS1000-HD-small.dcm']
-    hdmlc = True
-    max_error = 0.18
+    mlc = 'HD'
+    max_error = 0.05
     abs_median_error = 0.05
 
 
 class AS1000HDFull(PFBankMixin, TestCase):
     """Tests for the AS1000 image with a smaller pattern (only inner leaves)."""
     file_path = ['AS1000-HD-full.dcm']
-    hdmlc = True
+    mlc = 'HD'
     max_error = 0.2
     abs_median_error = 0.06
 
@@ -150,7 +150,7 @@ class AS1000HDFull(PFBankMixin, TestCase):
 class AS1000HDFullVMAT(PFBankMixin, TestCase):
     """Tests for the AS1000 image with a smaller pattern (only inner leaves)."""
     file_path = ['AS1000-HD-full-VMAT.dcm']
-    hdmlc = True
+    mlc = 'HD'
     max_error = 0.2
     abs_median_error = 0.08
 
@@ -159,7 +159,7 @@ class AS1000HDFullVMAT(PFBankMixin, TestCase):
 class AS1000HDFullError(PFBankMixin, TestCase):
     """Tests for the AS1000 image with a few errors introduced."""
     file_path = ['AS1000-HD-full-error.dcm']
-    hdmlc = True
+    mlc = 'HD'
     num_pickets = 6
     abs_median_error = 0.03
     max_error = 0.39
@@ -205,7 +205,7 @@ class AS1200ExtendedSIDVMAT(PFBankMixin, TestCase):
 class AS1200HD(PFBankMixin, TestCase):
     """Tests for the AS1200 image."""
     file_path = ['AS1200-HD.dcm']
-    hdmlc = True
+    mlc = 'HD'
     max_error = 0.05
     abs_median_error = 0.02
     num_pickets = 10
@@ -215,7 +215,7 @@ class AS1200HD(PFBankMixin, TestCase):
 class AS1200HDTranslated(PFBankMixin, TestCase):
     """Tests for the AS1200 image."""
     file_path = ['AS1200-HD-translated.dcm']
-    hdmlc = True
+    mlc = 'HD'
     max_error = 0.15
     abs_median_error = 0.02
     num_pickets = 10
@@ -225,14 +225,14 @@ class AS1200HDTranslated(PFBankMixin, TestCase):
 class ChicagoNoError(PFBankMixin, TestCase):
     file_path = ['Chicago', 'PF no error.dcm']
     # log = ['Chicago', 'PF no error tlog.bin']
-    hdmlc = True
+    mlc = 'HD'
     max_error = 0.24
 
 
 class ChicagoError(PFBankMixin, TestCase):
     file_path = ['Chicago', 'PF point2mm error.dcm']
     # log = ['Chicago', 'PF point2mm tlog.bin']
-    hdmlc = True
+    mlc = 'HD'
     max_error = 0.2
 
 

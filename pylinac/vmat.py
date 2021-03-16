@@ -10,14 +10,15 @@ Features:
 * **Automatic open/DMLC identification** - Pass in both images--don't worry about naming. Pylinac will automatically identify the right images.
 """
 from io import BytesIO
-from typing import Union, List, Tuple, Sequence
+from typing import Union, List, Tuple, Sequence, Optional
 
+import argue
 import matplotlib.pyplot as plt
 import numpy as np
 
 from .core import image
-from .core.decorators import value_accept
 from .core.geometry import Point, Rectangle
+from .core.image import ImageLike
 from .core.io import get_url, TemporaryZipDirectory, retrieve_demo_file
 from .core.pdf import PylinacCanvas
 from .core.profile import SingleProfile
@@ -85,8 +86,8 @@ class VMATBase:
         demo_file = retrieve_demo_file(url=cls._url_suffix)
         return cls.from_zip(demo_file)
 
-    @value_accept(tolerance=(0, 8))
-    def analyze(self, tolerance: Union[float, int]=1.5):
+    @argue.bounds(tolerance=(0, 8))
+    def analyze(self, tolerance: Union[float, int] = 1.5, segment_size_mm: Tuple = (5, 100)):
         """Analyze the open and DMLC field VMAT images, according to 1 of 2 possible tests.
 
         Parameters
@@ -94,15 +95,19 @@ class VMATBase:
         tolerance : float, int, optional
             The tolerance of the sample deviations in percent. Default is 1.5.
             Must be between 0 and 8.
+        segment_size_mm : tuple(int, int)
+            The (width, height) of the ROI segments in mm.
         """
         self._tolerance = tolerance/100
 
         """Analysis"""
         points = self._calculate_segment_centers()
+        Segment._nominal_width_mm = segment_size_mm[0]
+        Segment._nominal_height_mm = segment_size_mm[1]
         self._construct_segments(points)
 
     @staticmethod
-    def _load_images(image_paths):
+    def _load_images(image_paths: list) -> Tuple[ImageLike, ImageLike]:
         image1 = image.load(image_paths[0])
         image2 = image.load(image_paths[1])
         image1.ground()
@@ -110,13 +115,13 @@ class VMATBase:
         return image1, image2
 
     @staticmethod
-    def _check_img_inversion(image1, image2):
+    def _check_img_inversion(image1: ImageLike, image2: ImageLike) -> Tuple[ImageLike, ImageLike]:
         """Check that the images are correctly inverted."""
         for image in [image1, image2]:
             image.check_inversion()
         return image1, image2
 
-    def _identify_images(self, image1, image2):
+    def _identify_images(self, image1: ImageLike, image2: ImageLike):
         """Identify which image is the DMLC and which is the open field."""
         profile1, profile2 = self._median_profiles((image1, image2))
         field_profile1 = profile1.field_values()
@@ -150,7 +155,7 @@ class VMATBase:
         """Construct the center points of the segments based on the field center and known x-offsets."""
         points = []
         dmlc_prof, _ = self._median_profiles((self.dmlc_image, self.open_image))
-        x_field_center = dmlc_prof.fwxm_center()
+        x_field_center, _ = dmlc_prof.fwxm_center()
         for x_offset_mm in self.SEGMENT_X_POSITIONS_MM:
             y = self.open_image.center.y
             x_offset_pixels = x_offset_mm * self.open_image.dpmm
@@ -217,7 +222,7 @@ class VMATBase:
             plt.tight_layout(h_pad=1.5)
             plt.show()
 
-    @value_accept(subimage=(DMLC, OPEN, PROFILE))
+    @argue.options(subimage=(DMLC, OPEN, PROFILE))
     def _save_analyzed_subimage(self, filename: str, subimage: str, **kwargs):
         """Save the analyzed images as a png file.
 
@@ -231,8 +236,8 @@ class VMATBase:
         self._plot_analyzed_subimage(subimage=subimage, show=False)
         plt.savefig(filename, **kwargs)
 
-    @value_accept(subimage=(DMLC, OPEN, PROFILE))
-    def _plot_analyzed_subimage(self, subimage: str, show: bool=True, ax: plt.Axes=None):
+    @argue.options(subimage=(DMLC, OPEN, PROFILE))
+    def _plot_analyzed_subimage(self, subimage: str, show: bool=True, ax: Optional[plt.Axes]=None):
         """Plot an individual piece of the VMAT analysis.
 
         Parameters
@@ -300,7 +305,7 @@ class VMATBase:
 
         return profile1, profile2
 
-    def publish_pdf(self, filename: str, notes: str=None, open_file: bool=False, metadata: dict=None):
+    def publish_pdf(self, filename: str, notes: str=None, open_file: bool=False, metadata: Optional[dict]=None):
         """Publish (print) a PDF containing the analysis, images, and quantitative results.
 
         Parameters
@@ -396,8 +401,8 @@ class Segment(Rectangle):
         Specifies where the segment reading deviation was under tolerance.
     """
     # width of the segment (i.e. parallel to MLC motion) in pixels under reference conditions
-    _nominal_width_mm: int = 5
-    _nominal_height_mm: int = 100
+    _nominal_width_mm: int
+    _nominal_height_mm: int
 
     def __init__(self, center_point: Point, open_image: image.DicomImage, dmlc_image: image.DicomImage,
                  tolerance: Union[float, int]):

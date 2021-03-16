@@ -21,14 +21,14 @@ Features:
 """
 import copy
 import io
-from typing import Union, List
+from typing import Union, List, Optional
 
+import argue
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy import optimize
 
 from .core import image
-from .core.decorators import value_accept
 from .core.geometry import Point, Line, Circle
 from .core.io import get_url, TemporaryZipDirectory, retrieve_demo_file
 from .core import pdf
@@ -154,14 +154,14 @@ class Starshot:
         y_sum = np.sum(central_array, 1)
 
         # Calculate Full-Width, 80% Maximum center
-        fwxm_x_point = SingleProfile(x_sum).fwxm_center(80) + left_third
-        fwxm_y_point = SingleProfile(y_sum).fwxm_center(80) + top_third
+        fwxm_x_point = SingleProfile(x_sum).fwxm_center(80)[0] + left_third
+        fwxm_y_point = SingleProfile(y_sum).fwxm_center(80)[0] + top_third
         center_point = Point(fwxm_x_point, fwxm_y_point)
         return center_point
 
-    @value_accept(radius=(0.2, 0.95), min_peak_height=(0.05, 0.95))
+    @argue.bounds(radius=(0.2, 0.95), min_peak_height=(0.05, 0.95))
     def analyze(self, radius: float=0.85, min_peak_height: float=0.25, tolerance: float=1.0,
-                start_point: Point=None, fwhm: bool=True, recursive: bool=True, invert=False):
+                start_point: Point=None, fwhm: bool=True, recursive: bool=True, invert: bool=False):
         """Analyze the starshot image.
 
         Analyze finds the minimum radius and center of a circle that touches all the lines
@@ -274,7 +274,7 @@ class Starshot:
                                 raise RuntimeError("The algorithm was unable to determine a reasonable wobble. Try setting "
                                                    "recursive to False and manually adjusting algorithm parameters")
 
-    def _find_wobble_minimize(self):
+    def _find_wobble_minimize(self) -> None:
         """Find the minimum distance wobble location and radius to all radiation lines.
 
         The minimum is found using a scipy minimization function.
@@ -336,7 +336,7 @@ class Starshot:
         if show:
             plt.show()
 
-    def plot_analyzed_subimage(self, subimage: str='wobble', ax: plt.Axes=None, show: bool=True):
+    def plot_analyzed_subimage(self, subimage: str='wobble', ax: Optional[plt.Axes]=None, show: bool=True):
         """Plot a subimage of the starshot analysis. Current options are the zoomed out image and the zoomed in image.
 
         Parameters
@@ -399,7 +399,7 @@ class Starshot:
         self.plot_analyzed_subimage(subimage=subimage, show=False)
         plt.savefig(filename, **kwargs)
 
-    def publish_pdf(self, filename: str, notes: Union[str, List[str]]=None, open_file: bool=False, metadata: dict=None):
+    def publish_pdf(self, filename: str, notes: Union[str, List[str]]=None, open_file: bool=False, metadata: Optional[dict]=None):
         """Publish (print) a PDF containing the analysis, images, and quantitative results.
 
         Parameters
@@ -553,7 +553,7 @@ class StarProfile(CollapsedCircleProfile):
         self.filter(size=0.003, kind='gaussian')
         self.ground()
         if fwhm:
-            self.find_fwxm_peaks(x=80, threshold=min_peak_height, min_distance=min_peak_distance, interpolate=True)
+            self.find_fwxm_peaks(x=80, threshold=min_peak_height, min_distance=min_peak_distance)
         else:
             self.find_peaks(min_peak_height, min_peak_distance)
 

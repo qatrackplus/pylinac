@@ -19,7 +19,7 @@ Running the Demos
 
 For this example we will use the DRGS class:
 
-.. code-block:: python
+.. plot::
 
     from pylinac import DRGS
     DRGS.run_demo()
@@ -30,11 +30,6 @@ Results will be printed to the console and a figure showing both the Open field 
     Test Results (Tol. +/-1.5%): PASS
     Max Deviation: 1.01%
     Absolute Mean Deviation: 0.459%
-
-.. plot::
-
-    import pylinac
-    pylinac.DRGS.run_demo()
 
 Image Acquisition
 -----------------
@@ -59,7 +54,7 @@ The minimum needed to get going is to:
 * **Load images** -- Loading the EPID DICOM images into your VMAT class object can be done by passing the file paths,
   passing a ZIP archive, or passing a URL:
 
-.. code-block:: python
+  .. code-block:: python
 
       open_img = "C:/QA Folder/VMAT/open_field.dcm"
       dmlc_img = "C:/QA Folder/VMAT/dmlc_field.dcm"
@@ -71,7 +66,10 @@ The minimum needed to get going is to:
       # from a URL
       mydrgs = DRGS.from_url('http://myserver.org/vmat.zip')
 
-  Finally, if you don't have any images, you can use the demo ones provided::
+
+  Finally, if you don't have any images, you can use the demo ones provided:
+
+  .. code-block:: python
 
      mydrgs = DRGS.from_demo_images()
      mydrmlc = DRMLC.from_demo_images()
@@ -79,12 +77,14 @@ The minimum needed to get going is to:
 * **Analyze the images** -- Once the images are loaded, tell the class to analyze the images.
   See the Algorithm section for details on how this is done. Tolerance can also be passed and has a default value of 1.5%:
 
-.. code-block:: python
+  .. code-block:: python
 
       mydrgs.analyze(tolerance=1.5)
 
 * **View/Save the results** -- The VMAT module can print out the summary of results to the console as well as draw a matplotlib image to show where the
-  segments were placed and their values::
+  segments were placed and their values:
+
+  .. code-block:: python
 
       # print results to the console
       print(mydrgs.results())
@@ -92,9 +92,11 @@ The minimum needed to get going is to:
       mydrgs.plot_analyzed_image()
 
   .. plot::
+      :include-source: false
 
-    import pylinac
-    pylinac.DRGS.run_demo()
+      import pylinac
+
+      pylinac.DRGS.run_demo()
 
   PDF reports can also be generated:
 
@@ -102,6 +104,35 @@ The minimum needed to get going is to:
 
     myvmat.publish_pdf('drgs.pdf')
 
+.. _customizing_vmat_analysis:
+
+Customizing the analysis
+------------------------
+
+You can alter both the segment size and segment positions as desired.
+
+To change the segment size:
+
+.. code-block:: python
+
+    drgs = DRGS.from_demo_image()
+    drgs.analyze(..., segment_size_mm=(10, 150))  # ROI segments will now be 10mm wide by 150mm tall
+    # same story for DRMLC
+
+To change the x-positions of the ROI segments, the class property must be changed. This is different
+behavior because by default the x-positions are different for the DRGS and DRMLC test:
+
+.. code-block:: python
+
+    from pylinac import DRGS, DRMLC
+
+    DRGS.SEGMENT_X_POSITIONS_MM = (-100, -80, ...)
+    # proceed as normal
+    my_drgs = DRGS(...)
+
+    # DRMLC must be addressed separately
+    DRMLC.SEGMENT_X_POSITIONS_MM = (-40, -10, 10, 40)
+    my_drmlc = DRMLC(...)
 
 Accessing Data
 --------------

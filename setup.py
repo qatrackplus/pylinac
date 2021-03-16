@@ -1,6 +1,9 @@
 from setuptools import find_packages, setup
 
-__version__ = '2.3.1.15'
+with open('requirements.txt') as f:
+    required = f.read().splitlines()
+
+__version__ = '2.5.0.0'
 
 
 setup(
@@ -14,18 +17,7 @@ setup(
     author='James Kerns',
     author_email='jkerns100@gmail.com',
     description='A toolkit for performing TG-142 QA-related tasks on a linear accelerator',
-    install_requires=["numpy >= 1.14",
-                      "scipy >= 1.0",
-                      "pydicom >= 1.0",
-                      "matplotlib >= 1.4",
-                      "scikit-image >= 0.13",
-                      "scikit-learn >= 0.18",
-                      "Pillow >= 4.0",
-                      "tqdm >= 3.8",
-                      "pyyaml >= 3.10",
-                      "yagmail",
-                      "argue",
-                      "reportlab >= 3.3"],
+    install_requires=required,
     license='MIT',
     test_suite='test_basic',
     classifiers=[

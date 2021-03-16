@@ -3,6 +3,137 @@
 Changelog
 =========
 
+v 2.5.0
+-------
+
+.. warning:: There appears to be `an issue <https://github.com/conda-forge/pillow-feedstock/issues/69>`_ with reading TIFF images on Windows with libtiff=4.1.0. If you experience TIFF header errors, downgrade libtiff to <4.1.
+
+General
+^^^^^^^
+
+* This release adds utility functions to the image generator module and also a change in configuration of the picket fence module, allowing users to create their own MLC configurations.
+
+Dependencies
+############
+
+* `py-linq` has been added as a dependency. It's pure python so it will not add secondary dependencies.
+
+Picket Fence
+^^^^^^^^^^^^
+
+* MLC configuration has changed from being empirical to a priori, meaning that leaves are no longer determined, but passed in via configuration. This allows users to configure their own
+  custom MLCs arrangements. See :ref:`customizing_pf_mlcs`.
+* Linked with the above, the `is_hdmlc` parameter is deprecated and users should now use the `mlc` parameter in the constructor.
+* Also due to above, new parameters have been added to the `analyze` method. Please see the documentation for more info.
+* The colored overlay is now broken up into the individual leaf kisses rather than one line.
+* Several internal classes were removed or overhauled. This should not affect you if you're just using the basic routines like analyze().
+  `Settings` no longer exists, `MLCMeas` is now `MLCValue`. `PicketManager` no longer exists.
+
+VMAT
+^^^^
+
+* The ROI segment size can now be specified in `analyze`. This is discussed in the new section :ref:`customizing_vmat_analysis`.
+
+Image generator
+^^^^^^^^^^^^^^^
+
+In the previous release, a new image generator module was introduced. This release adds utility scripts for easily creating
+Winston-Lutz and picket fence image sets. See the Helpers section of the generator documentation.
+
+v 2.4.0
+-------
+
+General
+^^^^^^^
+
+Thanks to several contributors for making pull requests in this release!
+
+* A new image generator module has been added. This module can generate custom test images easily: :ref:`image_generator_module`.
+* The core peak-finding functionality used in several modules was refactored to use `scipy's implementation <https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.find_peaks.html>`_.
+  When pylinac was built, such a function did not exist. Now that it does, the custom code has been removed (yay!).
+  The major difference between this implementation and pylinac's is the use of "prominence", which is a concept I had never
+  heard of. The resulting peak-finding functionality is the same for max-value peak-finding. For FWXM peak finding, this
+  can have small differences. The biggest differences would be for profiles that have a very asymmetric "floor".
+  I.e. if one valley on one side of the peak has a very different value than the other side then a difference would be detected.
+  Fortunately, this is a very rare scenario.
+* Documentation plots have been updated to be generated on-the-fly. This will result in better agreement with documentation plots
+  vs. what people experience. Previously, some old figures were used that did not match the functionality.
+* The GUI function was removed from the pylinac init file. This was causing issues when deploying to Heroku as calls to tkinter
+  caused failures. The GUI should be called from the submodule now:
+
+  .. code-block:: python
+
+    # old
+    import pylinac
+    pylinac.gui()
+
+    # new
+    from pylinac.py_gui import gui
+    gui()
+
+Dependencies
+############
+
+Two requirements have been bumped: ``scipy>=1.1`` and ``scikit-image>=0.17``.
+
+CT Module
+^^^^^^^^^
+
+If you do not perform any advanced functionality, no changes are noteworthy.
+
+The CT module has been reworked to be far more extensible to adjust individual component modules as desired. Previously,
+only the offset of the modules was easily adjustable. To edit individual modules the user would have to edit the source code directly.
+Now, the user can subclass individual modules, overload attributes as desired and pass those to the parent CatPhan class.
+A new tutorial section has been added to the documentation showing examples of this functionality.
+
+* The CTP404 and 528 modules have been refactored into CatPhan-specific classes for easier overloading by appending "CP<model>".
+  E.g. CTP404CP503.
+* CTP modules had an inconsistent naming scheme for rois. E.g. CTP404 had ``hu_rois`` and ``bg_hu_rois`` while CTP515 had
+  ``inner_bg_rois`` and ``rois``. This has been standardized (mostly) into ``rois`` for all modules and, where applicable, ``background_rois``.
+  Some modules still have **more** relevant attrs, e.g. ``thickness_rois`` for CTP404, but they all have have ``rois``.
+* Due to the above refactor, you may notice small differences in the contrast constant value and thus the ROIs "seen".
+* HU differences are now signed. Previously the absolute value of the difference was taken.
+* HU nominal values have been adjusted to be the mean of the range listed in the CatPhan manuals. The changes
+  are as follows: Air: N/A (this is because most systems have a lower limit of -1000), PMP: -200 -> -196, LDPE: -100 -> -104,
+  Poly: -35 -> -47, Acrylic 120 -> 115, Delrin: 340 -> 365, Teflon: 990 -> 1000, Bone (20%): 240 -> 237, Bone (50%): N/A.
+
+Flatness & Symmetry
+^^^^^^^^^^^^^^^^^^^
+
+The flatness & symmetry module has been updated to allow for profiles of a select width to be analyzed rather than a single
+pixel profile.
+
+* A ``filter`` parameter has been added to the constructor. This filter will apply a median filter of pixel size x.
+* Due to the new peak-finding function, flatness and symmetry values may be slightly different. In testing, if a filter was
+  not used the values could change by up to 0.3%. However, when a filter was applied the difference was negligible.
+* Two new keyword parameters were added to analyze: ``vert_width`` and ``horiz_width``. You can read about their usage
+  in the ``analyze`` documentation.
+* The ``plot()`` method was renamed to ``plot_analyzed_image()`` to match the rest of the modules.
+
+Watcher
+^^^^^^^
+
+The watcher script has been officially deprecated for now (it was broken for a long time anyway). A better overall solution is to use something like QATrack+ anyway =).
+
+Bug Fixes
+^^^^^^^^^
+
+* `#325 <https://github.com/jrkerns/pylinac/issues/325>`_ The Leeds angle detection should be more robust when the phantom angle is very close to 0.
+* `#313 <https://github.com/jrkerns/pylinac/issues/313>`_ The catphan CTP486 module had an inverted top and bottom ROI assignment.
+* `#305 <https://github.com/jrkerns/pylinac/issues/305>`_ The Leeds ``invert`` parameter was not being respected.
+* `#303 <https://github.com/jrkerns/pylinac/issues/303>`_ Un-inverted WL image analysis would give an error.
+* `#290 <https://github.com/jrkerns/pylinac/issues/290>`_ Catphan HU linearity differences are now signed.
+* `#301 <https://github.com/jrkerns/pylinac/issues/301>`_ Loading starshots and picket fences from multiple images has been fixed.
+* `#199 <https://github.com/jrkerns/pylinac/issues/199>`_ Printing Picket Fence PDFs with a log has been fixed.
+
+
+v 2.3.2
+-------
+
+Bug Fixes
+^^^^^^^^^
+
+* `#285 <https://github.com/jrkerns/pylinac/issues/285>`_ The SI QC-3 module was incorrectly failing when the phantom was at 140cm due to a faulty mag factor.
 
 v 2.3.1
 -------
@@ -424,10 +555,10 @@ Winston-Lutz
 TG-51
 ^^^^^
 
-* The Electron class has been adjusted to reflect the `Muir & Rodgers 2014`_ kecal data which allows the user to calculate kQ from just R50 data.
+* The Electron class has been adjusted to reflect the `Muir & Rogers 2014`_ kecal data which allows the user to calculate kQ from just R50 data.
 * The `kq` function now accepts an `r_50` parameter to calculate kQ based on the above data.
 
-.. _Muir & Rodgers 2014: http://onlinelibrary.wiley.com/doi/10.1118/1.4893915/abstract
+.. _Muir & Rogers 2014: http://onlinelibrary.wiley.com/doi/10.1118/1.4893915/abstract
 
 Core Modules
 ^^^^^^^^^^^^

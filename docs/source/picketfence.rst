@@ -34,7 +34,9 @@ every position needs be looked at. If all rows are green, then all positions pas
 Running the Demo
 ----------------
 
-To run the picketfence demo, create a script or start in interpreter and input::
+To run the picketfence demo, create a script or start in interpreter and input:
+
+.. code-block:: python
 
     from pylinac import PicketFence
 
@@ -48,6 +50,7 @@ Results will be printed to the console and a figure showing the analyzed picket 
     Max Error: 0.208mm on Picket: 3, Leaf: 22
 
 .. plot::
+    :include-source: false
 
     from pylinac import PicketFence
     PicketFence.run_demo()
@@ -74,36 +77,57 @@ Typical Use
 -----------
 
 Picket Fence tests are recommended to be done weekly. With automatic software analysis, this can be a trivial task.
-Once the test is delivered to the EPID, retrieve the DICOM image and save it to a known location. Then import the class::
+Once the test is delivered to the EPID, retrieve the DICOM image and save it to a known location. Then import the class:
+
+.. code-block:: python
 
     from pylinac import PicketFence
 
 The minimum needed to get going is to:
 
 * **Load the image** -- As with most other pylinac modules, loading images can be done by passing the image string
-  directly, or by using a UI dialog box to retrieve the image manually. The code might look like either of the following::
+  directly, or by using a UI dialog box to retrieve the image manually. The code might look like either of the following:
+
+  .. code-block:: python
 
     pf_img = r"C:/QA Folder/June/PF_6_21.dcm"
     pf = PicketFence(pf_img)
 
-  You may also load multiple images that become superimposed (e.g. an MLC & Jaw irradiation)::
+  You may also load multiple images that become superimposed (e.g. an MLC & Jaw irradiation):
+
+  .. code-block:: python
 
     img1 = r'path/to/image1.dcm'
     img2 = r'path/to/image2.dcm'
     pf = PicketFence.from_multiple_images([img1, img2])
 
-  As well, you can use the demo image provided::
+  As well, you can use the demo image provided:
+
+  .. code-block:: python
 
      pf = PicketFence.from_demo_image()
 
+  You can also change the MLC type:
+
+  .. code-block:: python
+
+    pf = PicketFence(pf_img, mlc="HD")
+
+  In this case, we've set the MLCs to be HD Millennium. For more options and to customize the MLC configuration,
+  see :ref:`customizing_pf_mlcs`.
+
 * **Analyze the image** -- Once the image is loaded, tell PicketFence to start analyzing the image. See the
   Algorithm section for details on how this is done. While defaults exist, you may pass in a tolerance as well as
-  an "action" tolerance (meaning that while passing, action should be required above this tolerance)::
+  an "action" tolerance (meaning that while passing, action should be required above this tolerance):
+
+  .. code-block:: python
 
     pf.analyze(tolerance=0.15, action_tolerance=0.03)  # tight tolerance to demo fail & warning overlay
 
 * **View the results** -- The PicketFence class can print out the summary of results to the console as well as
-  draw a matplotlib image to show the image, MLC peaks, guard rails, and a color overlay for quick assessment::
+  draw a matplotlib image to show the image, MLC peaks, guard rails, and a color overlay for quick assessment:
+
+  .. code-block:: python
 
       # print results to the console
       print(pf.results())
@@ -113,17 +137,22 @@ The minimum needed to get going is to:
   which results in:
 
   .. plot::
+      :include-source: false
 
-    from pylinac import PicketFence
-    pf = PicketFence.from_demo_image()
-    pf.analyze(tolerance=0.15, action_tolerance=0.03)
-    pf.plot_analyzed_image()
+      from pylinac import PicketFence
+      pf = PicketFence.from_demo_image()
+      pf.analyze(tolerance=0.15, action_tolerance=0.03)
+      pf.plot_analyzed_image()
 
-  The plot is also able to be saved to PNG::
+  The plot is also able to be saved to PNG:
+
+  .. code-block:: python
 
       pf.save_analyzed_image('mypf.png')
 
-  Or you may save to PDF::
+  Or you may save to PDF:
+
+  .. code-block:: python
 
       pf.publish_pdf('mypf.pdf')
 
@@ -131,7 +160,9 @@ Using a Machine Log
 -------------------
 
 As of v1.4, you can load a machine log along with your picket fence image. The algorithm will use the expected
-fluence of the log to determine where the pickets should be instead of fitting to the MLC peaks. Usage looks like this::
+fluence of the log to determine where the pickets should be instead of fitting to the MLC peaks. Usage looks like this:
+
+.. code-block:: python
 
     from pylinac import PicketFence
 
@@ -149,12 +180,62 @@ Results will look similar. Here's an example of the results of using a log:
 
 .. image:: images/PF_with_log.png
 
+.. _customizing_pf_mlcs:
+
+Customizing MLCs
+----------------
+
+As of v2.5, MLC configuration is set a priori (vs empirical determination as before) and the user can also create
+custom MLC types. Pylinac was only able to handle Millennium and HD Millennium previously.
+
+Use a specific preset config:
+
+.. code-block:: python
+
+    pf = PicketFence(pf_img, mlc="Millennium")
+
+Preset configurations
+^^^^^^^^^^^^^^^^^^^^^^
+
+The following are preset in pylinac and can be referenced by string, as per above:
+
+.. plot::
+
+    from pylinac import PicketFence
+
+    print(list(PicketFence.MLCs.keys()))
+
+Creating and using a custom configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Using a custom configuration is very easy. You must create and then pass in a custom :class:`~pylinac.picketfence.MLCArrangement`.
+Leaf arrangements are sets of tuples with the leaf number and leaf width. An example will make this clear:
+
+.. code-block:: python
+
+    from pylinac.picketfence import PicketFence, MLCArrangement
+
+    # recreate a standard Millennium MLC with 10 leaves of 10mm width, then 40 leaves of 5mm, then 10 of 10mm again.
+    mlc_setup = MLCArrangement(leaf_arrangement=[(10, 10), (40, 5), (10, 10)])
+    # add an offset for Halcyon-style or odd-numbered leaf setups
+    mlc_setup_offset = MLCArrangement(leaf_arrangement=..., offset=2.5)  # offset is in mm
+
+    # pass it in to the mlc parameter
+    pf = PicketFence('path/to/img', mlc=mlc_setup)
+
+    # proceed as normal
+    pf.analyze(...)
+    ...
+
+
 Tips & Tricks
 -------------
 
 Using the picketfence module in your own scripts? While the analysis results can be printed out,
 if you intend on using them elsewhere, they can be accessed through properties. Continuing from
-above::
+above:
+
+.. code-block:: python
 
     pf.max_error  # max error in mm
     pf.max_error_picket  # which picket contained the max error
@@ -164,7 +245,9 @@ above::
     pf.percent_passing  # the percent of MLC measurements below tolerance
 
 The EPID can also sag at certain angles. Because pylinac assumes a perfect panel, sometimes the analysis will
-not be centered exactly on the MLC leaves. If you want to correct for this, simply pass the EPID sag in mm::
+not be centered exactly on the MLC leaves. If you want to correct for this, simply pass the EPID sag in mm:
+
+.. code-block:: python
 
     pf = PicketFence(r'C:/path/saggyPF.dcm')
     pf.analyze(sag_adjustment=0.6)
@@ -229,7 +312,9 @@ analysis, there are a few things you can do.
   :meth:`~pylinac.picketfence.PicketFence.analyze` to True, and vic versa.
 * **Apply a filter upon load** - While pylinac tries to correct for unreasonable noise in
   the image before analysis, there may still be noise that causes analysis to fail. A way to check
-  this is by applying a median filter upon loading the image::
+  this is by applying a median filter upon loading the image:
+
+  .. code-block:: python
 
      pf = PicketFence('mypf.dcm', filter=5)  # vary the filter size depending on the image
 
@@ -241,7 +326,9 @@ analysis, there are a few things you can do.
 
   If the artifacts are in the same direction as the pickets
   then it is possible pylinac is tripping on these artifacts. You can reacquire the image in another mode or
-  simply try again in the same mode. You may also try cropping the image to exclude the artifact::
+  simply try again in the same mode. You may also try cropping the image to exclude the artifact:
+
+  .. code-block:: python
 
      pf = PicketFence('mypf.dcm')
      pf.image.array = mypf.image.array[200:400, 150:450]  # or whatever values you want
@@ -266,14 +353,13 @@ API Documentation
 
 .. autoclass:: pylinac.picketfence.PicketFence
 
-Supporting Data Structures
+.. autoclass:: pylinac.picketfence.MLCArrangement
 
-.. autoclass:: pylinac.picketfence.PicketManager
+Supporting Classes
 
-.. autoclass:: pylinac.picketfence.Settings
+.. autoclass:: pylinac.picketfence.PFDicomImage
 
 .. autoclass:: pylinac.picketfence.Picket
 
-.. autoclass:: pylinac.picketfence.MLCMeas
+.. autoclass:: pylinac.picketfence.MLCValue
 
-.. autoclass:: pylinac.picketfence.Overlay
